@@ -68,5 +68,40 @@ check("Aturan otomatis sesuai pengaturan", ["40 soal", "90 menit", "Nilai minima
 check("Aturan tambahan: bullet/nomor dibuang, di akhir", rules.at(-1).source === "author" && rules.at(-1).text === "Dilarang mencontek" && parseCustomRules("  \n• satu").join() === "satu")
 check("Aturan > 20 baris → error", !!customRulesError(Array.from({ length: 21 }, () => "x").join("\n")))
 
+// ---- Kontrol fitur (feature toggle) ----
+const { resolveFeature, FEATURE_KEYS, FEATURES } = await import(src("features/registry.ts"))
+check("Fitur: tanpa override = bawaan (role berhak aktif, role lain ditolak)", resolveFeature("bank-soal.impor", "DOSEN", {}) && !resolveFeature("bank-soal.impor", "PESERTA", {}))
+check("Fitur: SUPER_ADMIN selalu lolos walau dimatikan global", resolveFeature("bank-soal.impor", "SUPER_ADMIN", { "bank-soal.impor": { enabled: false, roles: {} } }))
+check("Fitur: saklar role mati hanya untuk role itu", !resolveFeature("bank-soal.impor", "DOSEN", { "bank-soal.impor": { enabled: true, roles: { DOSEN: false } } }) && resolveFeature("bank-soal.impor", "ADMIN", { "bank-soal.impor": { enabled: true, roles: { DOSEN: false } } }))
+check("Fitur: saklar global mati menimpa saklar role aktif", !resolveFeature("hasil.lihat", "PESERTA", { "hasil.lihat": { enabled: false, roles: { PESERTA: true } } }))
+check("Fitur: override tidak bisa menambah akses ke role tak berhak", !resolveFeature("admin.kelompok", "DOSEN", { "admin.kelompok": { enabled: true, roles: { DOSEN: true } } }))
+check("Fitur: registry tidak pernah menyebut SUPER_ADMIN", FEATURE_KEYS.every((k: string) => !FEATURES[k].roles.includes("SUPER_ADMIN")))
+
+// ---- Tampilan situs: tema, teks, aset ----
+const { parseTheme, themeCss, contrast, pickForeground, contrastWarnings } = await import(src("site/theme.ts"))
+const { sniffImage } = await import(src("site/branding.ts"))
+const { mergeTexts, fill, textError, DEFAULT_TEXTS } = await import(new URL("../src/content/texts.ts", import.meta.url).href)
+check("Tema: data DB rusak/berbahaya → diabaikan (bawaan)", JSON.stringify(parseTheme({ light: { primary: "red}body{display:none" }, dark: {} })) === JSON.stringify({ light: {}, dark: {} }) && Object.keys(parseTheme(null).light).length === 0)
+check("Tema: key asing ditolak, hex dinormalisasi huruf kecil", parseTheme({ light: { primary: "#AABBCC", evil: "#000000" }, dark: {} }).light.primary === undefined && parseTheme({ light: { primary: "#AABBCC" }, dark: {} }).light.primary === "#aabbcc")
+const css = themeCss({ light: { primary: "#0f766e" }, dark: { background: "#000000" } })
+check("Tema: CSS per mode dengan selector (0,2,0), token turunan ikut", css.startsWith(":root:not(.dark){") && css.includes("--ring:#0f766e") && css.includes("--sidebar-primary:#0f766e") && css.includes(":root.dark{--background:#000000;--foreground:"), css)
+check("Tema: tanpa override → tidak ada CSS", themeCss({ light: {}, dark: {} }) === "")
+check("Kontras: putih/hitam 21:1, warna sama 1:1", Math.round(contrast("#ffffff", "#000000")) === 21 && contrast("#5b4fe9", "#5b4fe9") === 1)
+check("Foreground otomatis: primary terang → teks gelap, gelap → putih", pickForeground("#fde047", ["#ffffff", "#15131f"]) === "#15131f" && pickForeground("#1e3a8a", ["#ffffff", "#15131f"]) === "#ffffff")
+check("Peringatan kontras untuk warna tengah yang sulit dibaca", contrastWarnings("light", { primary: "#777777" }).length === 1 && contrastWarnings("light", { primary: "#1e3a8a" }).length === 0)
+check("Teks: override digabung, key asing & kosong diabaikan", mergeTexts({ "app.name": "UjianKu", "x.y": "z", "login.cta": "  " })["app.name"] === "UjianKu" && mergeTexts({ "login.cta": "  " })["login.cta"] === DEFAULT_TEXTS["login.cta"] && !("x.y" in mergeTexts({ "x.y": "z" })))
+check("Teks: placeholder diisi", fill("Ada {n} esai, {x} tetap", { n: 3 }) === "Ada 3 esai, {x} tetap")
+check("Teks: validasi panjang, baris, placeholder", !!textError("app.name", "x".repeat(41)) && !!textError("login.cta", "a\nb") && !!textError("dashboard.staff.toGrade", "Ada {jumlah}") && textError("dashboard.staff.toGrade", "Tersisa {n} esai") === null && !!textError("login.title", "Halo {n}"))
+check("Aset: format dikenali dari isi berkas, SVG/HTML ditolak", sniffImage(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) === "image/png" && sniffImage(new TextEncoder().encode("<svg onload=alert(1)>")) === null && sniffImage(new Uint8Array([0, 0, 1, 0, 1])) === "image/x-icon")
+
+// ---- Menu navigasi: label dari CMS ----
+type NavOut = { title?: string; items: { href: string; label: string; textKey?: string }[] }[]
+const { navFor } = await import(new URL("../src/components/shell/nav.ts", import.meta.url).href)
+const pesertaNav: NavOut = navFor("PESERTA", [], { "nav.ujian": "Tes Saya", "nav.section.akun": "" })
+const labels = pesertaNav.flatMap((s) => s.items.map((i) => i.label))
+check("Menu: label ubahan dipakai, kosong → bawaan, fitur nonaktif → menu hilang", labels.includes("Tes Saya") && !labels.includes("Hasil Ujian") && pesertaNav.some((s) => s.title === "Akun"), labels)
+const saItems = (navFor("SUPER_ADMIN", [], {}) as NavOut).flatMap((s) => s.items).filter((i) => ["/admin/fitur", "/admin/situs", "/admin/log"].includes(i.href))
+check("Menu: item khusus Super Admin tidak bisa diganti labelnya", saItems.length === 3 && saItems.every((i) => !i.textKey))
+
 console.log(`\n${pass} lulus, ${fail} gagal`)
 if (fail) process.exit(1)

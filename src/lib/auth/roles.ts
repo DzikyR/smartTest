@@ -16,8 +16,13 @@ export const HOME = "/dashboard"
 export const STAFF: Role[] = ["SUPER_ADMIN", "ADMIN", "DOSEN"]
 export const ADMINS: Role[] = ["SUPER_ADMIN", "ADMIN"]
 
-/** Area terproteksi dan role yang boleh mengaksesnya (pemeriksaan optimis di Proxy). */
+/**
+ * Area terproteksi dan role yang boleh mengaksesnya (pemeriksaan optimis di Proxy).
+ * Dicocokkan berurutan — prefix yang lebih spesifik harus di atas prefix induknya.
+ */
 export const PROTECTED_AREAS: { prefix: string; roles: Role[] }[] = [
+  { prefix: "/admin/fitur", roles: ["SUPER_ADMIN"] },
+  { prefix: "/admin/situs", roles: ["SUPER_ADMIN"] },
   { prefix: "/admin", roles: ADMINS },
   { prefix: "/mata-uji", roles: STAFF },
   { prefix: "/bank-soal", roles: STAFF },

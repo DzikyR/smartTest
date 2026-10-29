@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
 import { db } from "@/lib/db"
-import { requireRole } from "@/lib/auth/dal"
+import { requireFeature } from "@/lib/features/access"
 import { STAFF } from "@/lib/auth/roles"
 import { listManagedSubjects, managedSubjects } from "@/lib/data/access"
 import { EmptyState, PageHeader, str } from "@/components/shell/page-parts"
@@ -12,7 +12,7 @@ import { ImportWizard } from "./import-wizard"
 export const metadata: Metadata = { title: "Impor Soal" }
 
 export default async function ImportPage({ searchParams }: PageProps<"/bank-soal/impor">) {
-  const user = await requireRole(...STAFF)
+  const user = await requireFeature("bank-soal.impor", ...STAFF)
   const sp = await searchParams
   const subjects = await listManagedSubjects(user)
   if (subjects.length === 0) return <EmptyState title="Belum ada mata uji yang Anda kelola" />

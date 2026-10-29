@@ -1,5 +1,7 @@
 import type { Metadata } from "next"
 import { requireRole } from "@/lib/auth/dal"
+import { isFeatureEnabled } from "@/lib/features/access"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { participantExams, type ParticipantExamState } from "@/lib/data/participant"
 import { ParticipantExamCard } from "@/components/exam/participant-exam-card"
 import { EmptyState, PageHeader } from "@/components/shell/page-parts"
@@ -15,10 +17,16 @@ const GROUPS: { title: string; states: ParticipantExamState[]; empty?: string }[
 
 export default async function MyExamsPage() {
   const user = await requireRole("PESERTA")
-  const exams = await participantExams(user)
+  const [exams, canStart] = await Promise.all([participantExams(user), isFeatureEnabled("ujian.mulai", user.role)])
   return (
     <div className="flex flex-col gap-6">
       <PageHeader title="Ujian Saya" description="Kuis, UTS, UAS, dan tes yang ditujukan untuk Anda. Siapkan koneksi stabil sebelum memulai." />
+      {!canStart && (
+        <Alert>
+          <AlertTitle>Memulai ujian baru sedang dinonaktifkan</AlertTitle>
+          <AlertDescription>Ujian yang sedang Anda kerjakan tetap dapat dilanjutkan dan dikumpulkan.</AlertDescription>
+        </Alert>
+      )}
       {exams.length === 0 ? (
         <EmptyState title="Belum ada ujian" description="Ujian yang diterbitkan untuk Anda akan muncul di sini." />
       ) : (

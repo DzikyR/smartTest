@@ -3,7 +3,7 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { ArrowLeft, Pencil, Trash2, UserMinus, UserPlus } from "lucide-react"
 import { db } from "@/lib/db"
-import { requireRole } from "@/lib/auth/dal"
+import { requireFeature } from "@/lib/features/access"
 import { ADMINS } from "@/lib/auth/roles"
 import { initials } from "@/lib/format"
 import { EmptyState, PageHeader } from "@/components/shell/page-parts"
@@ -20,7 +20,7 @@ import { GroupFields } from "../fields"
 export const metadata: Metadata = { title: "Kelompok" }
 
 export default async function GroupDetailPage({ params }: PageProps<"/admin/kelompok/[id]">) {
-  await requireRole(...ADMINS)
+  await requireFeature("admin.kelompok", ...ADMINS)
   const { id } = await params
   const group = await db.group.findUnique({
     where: { id },

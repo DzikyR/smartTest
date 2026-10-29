@@ -5,6 +5,8 @@ import { Prisma } from "@/generated/prisma/client"
 import { db } from "@/lib/db"
 import { audit } from "@/lib/audit"
 import { requireRole } from "@/lib/auth/dal"
+import { isFeatureEnabled } from "@/lib/features/access"
+import { FEATURE_DISABLED } from "@/lib/features/registry"
 import { STAFF } from "@/lib/auth/roles"
 import { canManageSubject, getManagedQuestion } from "@/lib/data/access"
 import { appendExamQuestions, editableExam } from "@/lib/data/exam-questions"
@@ -103,6 +105,7 @@ export async function saveBulk(
   examId: string | null
 ): Promise<ActionResult<{ created: number }>> {
   const user = await requireRole(...STAFF)
+  if (!(await isFeatureEnabled("bank-soal.massal", user.role))) return fail(FEATURE_DISABLED)
   if (!Array.isArray(raws) || raws.length === 0) return fail("Belum ada soal.")
   if (raws.length > MAX_IMPORT_QUESTIONS) return fail(`Maksimal ${MAX_IMPORT_QUESTIONS} soal sekali simpan.`)
   const errors: Record<number, string> = {}
@@ -130,7 +133,8 @@ export async function saveBulk(
 // ---------------------------------------------------------------------------
 
 export async function previewImport(_prev: ActionResult<unknown>, formData: FormData): Promise<ActionResult<ImportResult>> {
-  await requireRole(...STAFF)
+  const user = await requireRole(...STAFF)
+  if (!(await isFeatureEnabled("bank-soal.impor", user.role))) return fail(FEATURE_DISABLED)
   const source = String(formData.get("source") ?? "")
   let result: ImportResult
   if (source === "text") {
@@ -154,6 +158,7 @@ export async function previewImport(_prev: ActionResult<unknown>, formData: Form
 
 export async function saveImported(subjectId: string, examId: string | null, items: unknown[]): Promise<ActionResult> {
   const user = await requireRole(...STAFF)
+  if (!(await isFeatureEnabled("bank-soal.impor", user.role))) return fail(FEATURE_DISABLED)
   if (!Array.isArray(items) || items.length === 0) return fail("Tidak ada soal untuk disimpan.")
   if (items.length > MAX_IMPORT_QUESTIONS) return fail(`Maksimal ${MAX_IMPORT_QUESTIONS} soal per impor.`)
   const questions: ImportedQuestion[] = []

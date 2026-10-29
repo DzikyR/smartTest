@@ -5,6 +5,7 @@ import { z } from "zod"
 import { db } from "@/lib/db"
 import { audit } from "@/lib/audit"
 import { requireRole, type CurrentUser } from "@/lib/auth/dal"
+import { isFeatureEnabled } from "@/lib/features/access"
 import { rateLimit } from "@/lib/rate-limit"
 import { examWindow, getParticipantExam } from "@/lib/data/access"
 import { fail, ok, prismaCode, type ActionResult } from "@/lib/action-result"
@@ -46,6 +47,8 @@ export async function startExam(examId: string, _prev: ActionResult, formData: F
     return ok()
   }
 
+  // Hanya percobaan BARU yang diblokir; yang sedang berjalan sudah dilanjutkan di atas.
+  if (!(await isFeatureEnabled("ujian.mulai", user.role))) return fail("Memulai ujian baru sedang dinonaktifkan oleh administrator.")
   if (!exam.sessionActive) return fail("Sesi ujian sedang ditutup oleh pengawas.")
   const window = examWindow(exam)
   if (window === "upcoming") return fail("Ujian belum dibuka.")

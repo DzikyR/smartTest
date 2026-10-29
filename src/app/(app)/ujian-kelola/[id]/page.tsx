@@ -29,6 +29,8 @@ import {
 } from "lucide-react"
 import { db } from "@/lib/db"
 import { requireRole } from "@/lib/auth/dal"
+import { enabledFeatures } from "@/lib/features/access"
+import type { FeatureKey } from "@/lib/features/registry"
 import { STAFF } from "@/lib/auth/roles"
 import { getManagedExam } from "@/lib/data/access"
 import { DISTRIBUTION_BUCKETS, loadExamReport } from "@/lib/data/exam-report"
@@ -86,6 +88,7 @@ export default async function ExamDetailPage({ params, searchParams }: PageProps
   const tab = TABS.find((t) => t.key === str(sp.tab))?.key ?? "ringkasan"
   const status = examStatus(exam)
   const [questions, report] = await Promise.all([db.examQuestion.findMany({ where: { examId: id }, orderBy: [{ order: "asc" }, { id: "asc" }] }), loadExamReport(exam)])
+  const features = await enabledFeatures(user.role)
   const locked = report.finished > 0
   const totalPoints = questions.reduce((s, q) => s + q.points, 0)
   const base = `/ujian-kelola/${id}`
@@ -97,7 +100,7 @@ export default async function ExamDetailPage({ params, searchParams }: PageProps
       </Link>
 
       {/* ----- Kepala ujian ----- */}
-      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-[oklch(0.42_0.19_292)] p-6 text-primary-foreground">
+      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-primary-deep p-6 text-primary-foreground">
         <div className="absolute -top-16 -right-10 size-56 rounded-full bg-white/10" aria-hidden />
         <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
@@ -161,9 +164,9 @@ export default async function ExamDetailPage({ params, searchParams }: PageProps
       />
 
       {tab === "ringkasan" && <SummaryTab exam={exam} questions={questions.length} report={report} />}
-      {tab === "soal" && <QuestionsTab exam={exam} questions={questions} locked={locked} totalPoints={totalPoints} />}
+      {tab === "soal" && <QuestionsTab exam={exam} questions={questions} locked={locked} totalPoints={totalPoints} features={features} />}
       {tab === "peserta" && <ParticipantsTab exam={exam} report={report} />}
-      {tab === "hasil" && <ResultsTab exam={exam} report={report} />}
+      {tab === "hasil" && <ResultsTab exam={exam} report={report} canExport={features.includes("ujian-kelola.ekspor")} />}
     </div>
   )
 }
@@ -311,7 +314,19 @@ function SummaryTab({ exam, questions, report }: { exam: Exam; questions: number
 // Soal
 // ---------------------------------------------------------------------------
 
-async function QuestionsTab({ exam, questions, locked, totalPoints }: { exam: Exam; questions: Awaited<ReturnType<typeof db.examQuestion.findMany>>; locked: boolean; totalPoints: number }) {
+async function QuestionsTab({
+  exam,
+  questions,
+  locked,
+  totalPoints,
+  features,
+}: {
+  exam: Exam
+  questions: Awaited<ReturnType<typeof db.examQuestion.findMany>>
+  locked: boolean
+  totalPoints: number
+  features: FeatureKey[]
+}) {
   const bank = await db.question.findMany({
     where: { subjectId: exam.subjectId },
     orderBy: [{ topic: "asc" }, { createdAt: "asc" }],
@@ -342,12 +357,16 @@ async function QuestionsTab({ exam, questions, locked, totalPoints }: { exam: Ex
             >
               <BankPickerFields items={bank.map((b) => ({ ...b, used: used.has(b.id) }))} topics={topics} />
             </FormDialog>
-            <Link href={`/bank-soal/massal?exam=${exam.id}`} className={buttonVariants({ variant: "outline", className: "rounded-xl" })}>
-              <Layers aria-hidden /> Buat massal
-            </Link>
-            <Link href={`/bank-soal/impor?subject=${exam.subjectId}`} className={buttonVariants({ variant: "outline", className: "rounded-xl" })}>
-              <FileUp aria-hidden /> Impor Word/Excel
-            </Link>
+            {features.includes("bank-soal.massal") && (
+              <Link href={`/bank-soal/massal?exam=${exam.id}`} className={buttonVariants({ variant: "outline", className: "rounded-xl" })}>
+                <Layers aria-hidden /> Buat massal
+              </Link>
+            )}
+            {features.includes("bank-soal.impor") && (
+              <Link href={`/bank-soal/impor?subject=${exam.subjectId}`} className={buttonVariants({ variant: "outline", className: "rounded-xl" })}>
+                <FileUp aria-hidden /> Impor Word/Excel
+              </Link>
+            )}
           </div>
         )}
       </div>
@@ -563,16 +582,18 @@ function ParticipantsTab({ exam, report }: { exam: Exam; report: Report }) {
 // Hasil & analisis
 // ---------------------------------------------------------------------------
 
-function ResultsTab({ exam, report }: { exam: Exam; report: Report }) {
+function ResultsTab({ exam, report, canExport }: { exam: Exam; report: Report; canExport: boolean }) {
   if (!report.stats) return <EmptyState title="Belum ada hasil" description="Statistik, sebaran nilai, dan analisis butir soal tampil setelah peserta mengumpulkan." />
   const s = report.stats
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex justify-end">
-        <a href={`/ujian-kelola/${exam.id}/ekspor`} className={buttonVariants({ variant: "outline", className: "rounded-xl" })} download>
-          <Download aria-hidden /> Ekspor nilai (Excel)
-        </a>
-      </div>
+      {canExport && (
+        <div className="flex justify-end">
+          <a href={`/ujian-kelola/${exam.id}/ekspor`} className={buttonVariants({ variant: "outline", className: "rounded-xl" })} download>
+            <Download aria-hidden /> Ekspor nilai (Excel)
+          </a>
+        </div>
+      )}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Peserta dinilai" value={s.count} icon={<Users />} tint="sky" />
         <StatCard label="Rata-rata" value={s.mean} icon={<BarChart3 />} tint="violet" />

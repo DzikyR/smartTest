@@ -4,6 +4,10 @@ import { ArrowRight, BookOpenText, CalendarClock, ClipboardList, FilePen, Librar
 import { db } from "@/lib/db"
 import { isAdmin, requireRole, type CurrentUser } from "@/lib/auth/dal"
 import { managedSubjects } from "@/lib/data/access"
+import { getTexts } from "@/lib/site/config"
+import { fill } from "@/content/texts"
+import { enabledFeatures } from "@/lib/features/access"
+import type { FeatureKey } from "@/lib/features/registry"
 import { participantExams } from "@/lib/data/participant"
 import { formatDateTime } from "@/lib/format"
 import { EXAM_KIND_LABEL } from "@/lib/labels"
@@ -23,16 +27,17 @@ export default async function DashboardPage() {
   return user.role === "PESERTA" ? <ParticipantDashboard user={user} /> : <StaffDashboard user={user} />
 }
 
-function Welcome({ name, subtitle, action }: { name: string; subtitle: string; action?: React.ReactNode }) {
+async function Welcome({ name, subtitle, action }: { name: string; subtitle: string; action?: React.ReactNode }) {
   const first = name.split(/\s+/)[0]
+  const t = await getTexts()
   return (
-    <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary via-[oklch(0.5_0.21_285)] to-[oklch(0.42_0.19_295)] p-6 text-primary-foreground sm:p-8">
+    <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary via-primary-mid to-primary-deep p-6 text-primary-foreground sm:p-8">
       <div className="absolute -top-20 -right-16 size-64 rounded-full bg-white/10" aria-hidden />
       <div className="absolute right-24 -bottom-24 size-48 rounded-full bg-white/5" aria-hidden />
       <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="flex items-center gap-1.5 text-sm text-primary-foreground/80">
-            <Sparkles className="size-4" aria-hidden /> Selamat datang kembali
+            <Sparkles className="size-4" aria-hidden /> {t["dashboard.greeting"]}
           </p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Halo, {first}!</h1>
           <p className="mt-1 max-w-lg text-sm text-primary-foreground/85">{subtitle}</p>
@@ -49,6 +54,7 @@ function Welcome({ name, subtitle, action }: { name: string; subtitle: string; a
 
 async function StaffDashboard({ user }: { user: CurrentUser }) {
   const scope = { subject: managedSubjects(user) }
+  const [features, t] = await Promise.all([enabledFeatures(user.role), getTexts()])
   const [subjects, questions, participants, exams, toGrade, recentLogs] = await Promise.all([
     db.subject.count({ where: managedSubjects(user) }),
     db.question.count({ where: scope }),
@@ -89,10 +95,10 @@ async function StaffDashboard({ user }: { user: CurrentUser }) {
     <div className="flex flex-col gap-6">
       <Welcome
         name={user.name}
-        subtitle={toGradeTotal ? `Ada ${toGradeTotal} jawaban esai yang menunggu dinilai.` : "Kelola bank soal dan jadwalkan ujian berikutnya."}
+        subtitle={toGradeTotal ? fill(t["dashboard.staff.toGrade"], { n: toGradeTotal }) : t["dashboard.staff.idle"]}
         action={
           <Link href="/ujian-kelola/baru" className={buttonVariants({ className: "rounded-xl bg-white text-primary hover:bg-white/90" })}>
-            <Plus aria-hidden /> Buat ujian
+            <Plus aria-hidden /> {t["dashboard.staff.cta"]}
           </Link>
         }
       />
@@ -184,12 +190,16 @@ async function StaffDashboard({ user }: { user: CurrentUser }) {
             <CardTitle>Akses cepat</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
-            {[
-              { href: "/bank-soal/massal", label: "Buat soal massal", icon: ClipboardList, tint: "bg-tint-violet text-tint-violet-fg" },
-              { href: "/bank-soal/impor", label: "Impor Word/Excel", icon: Library, tint: "bg-tint-sky text-tint-sky-fg" },
+            {(
+              [
+                { href: "/bank-soal/massal", label: "Buat soal massal", icon: ClipboardList, tint: "bg-tint-violet text-tint-violet-fg", feature: "bank-soal.massal" },
+                { href: "/bank-soal/impor", label: "Impor Word/Excel", icon: Library, tint: "bg-tint-sky text-tint-sky-fg", feature: "bank-soal.impor" },
               { href: "/ujian-kelola/baru", label: "Jadwalkan ujian", icon: CalendarClock, tint: "bg-tint-green text-tint-green-fg" },
               ...(isAdmin(user) ? [{ href: "/admin/pengguna", label: "Kelola pengguna", icon: Users, tint: "bg-tint-orange text-tint-orange-fg" }] : [{ href: "/mata-uji", label: "Mata uji saya", icon: BookOpenText, tint: "bg-tint-orange text-tint-orange-fg" }]),
-            ].map(({ href, label, icon: Icon, tint }) => (
+              ] as { href: string; label: string; icon: typeof Library; tint: string; feature?: FeatureKey }[]
+            )
+              .filter((item) => !item.feature || features.includes(item.feature))
+              .map(({ href, label, icon: Icon, tint }) => (
               <Link key={href} href={href} className="flex items-center gap-3 rounded-xl border p-3 text-sm font-medium hover:border-primary/40 hover:bg-muted/40">
                 <span className={cn("flex size-9 items-center justify-center rounded-lg", tint)}>
                   <Icon className="size-[18px]" aria-hidden />
@@ -224,7 +234,7 @@ async function StaffDashboard({ user }: { user: CurrentUser }) {
 // ---------------------------------------------------------------------------
 
 async function ParticipantDashboard({ user }: { user: CurrentUser }) {
-  const exams = await participantExams(user)
+  const [exams, t] = await Promise.all([participantExams(user), getTexts()])
   const now = exams.filter((e) => e.state === "running" || e.state === "available")
   const upcoming = exams.filter((e) => e.state === "upcoming")
   const scored = exams.filter((e) => e.best !== null)
@@ -234,11 +244,11 @@ async function ParticipantDashboard({ user }: { user: CurrentUser }) {
     <div className="flex flex-col gap-6">
       <Welcome
         name={user.name}
-        subtitle={now.length ? `Ada ${now.length} ujian yang bisa Anda kerjakan sekarang. Semoga sukses!` : "Belum ada ujian yang dibuka saat ini."}
+        subtitle={now.length ? fill(t["dashboard.participant.available"], { n: now.length }) : t["dashboard.participant.idle"]}
         action={
           now.length > 0 && (
             <Link href={`/ujian/${now[0].id}`} className={buttonVariants({ className: "rounded-xl bg-white text-primary hover:bg-white/90" })}>
-              <MonitorCheck aria-hidden /> Kerjakan sekarang
+              <MonitorCheck aria-hidden /> {t["dashboard.participant.cta"]}
             </Link>
           )
         }

@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { ChevronRight, Plus, UsersRound } from "lucide-react"
 import { db } from "@/lib/db"
-import { requireRole } from "@/lib/auth/dal"
+import { requireFeature } from "@/lib/features/access"
 import { ADMINS } from "@/lib/auth/roles"
 import { EmptyState, PageHeader, TintIcon } from "@/components/shell/page-parts"
 import { FormDialog } from "@/components/forms/form-dialog"
@@ -13,7 +13,7 @@ import { GroupFields } from "./fields"
 export const metadata: Metadata = { title: "Kelompok Peserta" }
 
 export default async function GroupsPage() {
-  await requireRole(...ADMINS)
+  await requireFeature("admin.kelompok", ...ADMINS)
   const groups = await db.group.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { members: true, exams: true } } } })
   const tints = ["violet", "sky", "green", "orange", "rose"] as const
 

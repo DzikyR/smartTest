@@ -1,20 +1,26 @@
 import { Suspense } from "react"
 import { getCurrentUser, requireRole } from "@/lib/auth/dal"
+import { enabledFeatures } from "@/lib/features/access"
+import { getBrand, getTexts } from "@/lib/site/config"
+import { NAV_TEXT_KEYS, type Texts } from "@/content/texts"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Logo } from "./logo"
 import { MobileNav } from "./mobile-nav"
-import { Logo, SidebarNav, SidebarPromo } from "./sidebar"
+import { SidebarNav, SidebarPromo } from "./sidebar"
 import { HeaderDate } from "./header-date"
+import { SiteSync } from "./site-sync"
 import { UserMenu } from "./user-menu"
 
 /**
  * Kerangka aplikasi: sidebar putih di kiri, kanvas lavender di kanan.
  * Bagian yang membaca sesi di-stream di balik <Suspense> (Partial Prerendering).
  */
-export function AppShell({ children }: { children: React.ReactNode }) {
+export async function AppShell({ children }: { children: React.ReactNode }) {
+  const brand = await getBrand()
   return (
     <div className="flex min-h-svh">
       <aside className="sticky top-0 hidden h-svh w-64 shrink-0 flex-col gap-6 overflow-y-auto border-r border-sidebar-border bg-sidebar px-4 py-6 lg:flex">
-        <Logo className="px-2" />
+        <Logo brand={brand} className="px-2" />
         <Suspense fallback={<NavSkeleton />}>
           <SidebarForUser />
         </Suspense>
@@ -25,7 +31,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Suspense fallback={<Skeleton className="size-9 lg:hidden" />}>
             <MobileNavForUser />
           </Suspense>
-          <Logo className="lg:hidden" />
+          <Logo brand={brand} className="lg:hidden" />
           <HeaderDate className="hidden lg:block" />
           <div className="ml-auto">
             <Suspense fallback={<Skeleton className="h-10 w-40 rounded-xl" />}>
@@ -46,18 +52,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 async function SidebarForUser() {
   const user = await getCurrentUser()
   if (!user || user.mustChangePassword) return null
+  const [features, t] = await Promise.all([enabledFeatures(user.role), getTexts()])
+  const who = user.role === "PESERTA" ? "participant" : "staff"
+  const copy = { title: t[`sidebar.${who}.title`], text: t[`sidebar.${who}.text`], cta: t[`sidebar.${who}.cta`] }
   return (
     <div className="flex flex-1 flex-col justify-between gap-6">
-      <SidebarNav role={user.role} />
-      <SidebarPromo role={user.role} />
+      <SidebarNav role={user.role} features={features} labels={navLabels(t)} />
+      <SidebarPromo role={user.role} features={features} copy={copy} />
     </div>
   )
 }
 
 async function MobileNavForUser() {
   const user = await getCurrentUser()
-  return user && !user.mustChangePassword ? <MobileNav role={user.role} /> : null
+  if (!user || user.mustChangePassword) return null
+  const [features, t] = await Promise.all([enabledFeatures(user.role), getTexts()])
+  return <MobileNav role={user.role} features={features} labels={navLabels(t)} appName={t["app.name"]} />
 }
+
+const navLabels = (t: Texts) => Object.fromEntries(NAV_TEXT_KEYS.map((k) => [k, t[k]]))
 
 async function HeaderUser() {
   const user = await getCurrentUser()
@@ -68,7 +81,12 @@ async function HeaderUser() {
 /** Otorisasi server-side: konten hanya untuk pengguna login (role per halaman dicek di halaman). */
 async function Gate({ children }: { children: React.ReactNode }) {
   await requireRole()
-  return children
+  return (
+    <>
+      {children}
+      <SiteSync />
+    </>
+  )
 }
 
 function NavSkeleton() {

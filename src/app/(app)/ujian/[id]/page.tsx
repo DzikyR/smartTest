@@ -90,7 +90,7 @@ export default async function TakeExamPage({ params }: PageProps<"/ujian/[id]">)
         <ArrowLeft aria-hidden /> Ujian Saya
       </Link>
 
-      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-[oklch(0.42_0.19_292)] p-6 text-primary-foreground">
+      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-primary-deep p-6 text-primary-foreground">
         <div className="absolute -top-16 -right-10 size-56 rounded-full bg-white/10" aria-hidden />
         <div className="relative">
           <p className="text-sm text-primary-foreground/80">

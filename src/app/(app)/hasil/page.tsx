@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { Award, BarChart3, ClipboardCheck } from "lucide-react"
 import { db } from "@/lib/db"
-import { requireRole } from "@/lib/auth/dal"
+import { requireFeature } from "@/lib/features/access"
 import { formatDateTime } from "@/lib/format"
 import { EXAM_KIND_LABEL } from "@/lib/labels"
 import { round2 } from "@/lib/exam/grading"
@@ -13,7 +13,7 @@ import { Card } from "@/components/ui/card"
 export const metadata: Metadata = { title: "Hasil Ujian" }
 
 export default async function ResultsPage() {
-  const user = await requireRole("PESERTA")
+  const user = await requireFeature("hasil.lihat", "PESERTA")
   const attempts = await db.attempt.findMany({
     where: { userId: user.id, status: { not: "IN_PROGRESS" } },
     orderBy: { submittedAt: "desc" },

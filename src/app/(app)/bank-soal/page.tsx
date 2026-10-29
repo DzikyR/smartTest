@@ -4,6 +4,7 @@ import { Check, FileUp, Layers, Pencil, Plus } from "lucide-react"
 import type { Prisma, QuestionType } from "@/generated/prisma/client"
 import { db } from "@/lib/db"
 import { requireRole } from "@/lib/auth/dal"
+import { enabledFeatures } from "@/lib/features/access"
 import { STAFF } from "@/lib/auth/roles"
 import { listManagedSubjects } from "@/lib/data/access"
 import { DIFFICULTY_LABEL, QUESTION_TYPE_LABEL, QUESTION_TYPE_SHORT, SUBJECT_TYPE_LABEL } from "@/lib/labels"
@@ -32,6 +33,7 @@ const TYPE_TINT: Record<QuestionType, string> = {
 
 export default async function QuestionBankPage({ searchParams }: PageProps<"/bank-soal">) {
   const user = await requireRole(...STAFF)
+  const features = await enabledFeatures(user.role)
   const sp = await searchParams
   const subjects = await listManagedSubjects(user)
   const subject = subjects.find((s) => s.id === str(sp.subject)) ?? subjects[0]
@@ -80,12 +82,16 @@ export default async function QuestionBankPage({ searchParams }: PageProps<"/ban
         description="Kumpulan soal per mata uji — dipakai ulang untuk kuis, UTS, UAS, dan tes umum. Soal disalin saat dimasukkan ke ujian."
         actions={
           <>
-            <Link href={`/bank-soal/impor?subject=${subject.id}`} className={buttonVariants({ variant: "outline", className: "rounded-xl" })}>
-              <FileUp aria-hidden /> Impor Word/Excel
-            </Link>
-            <Link href={`/bank-soal/massal?subject=${subject.id}`} className={buttonVariants({ variant: "outline", className: "rounded-xl" })}>
-              <Layers aria-hidden /> Buat massal
-            </Link>
+            {features.includes("bank-soal.impor") && (
+              <Link href={`/bank-soal/impor?subject=${subject.id}`} className={buttonVariants({ variant: "outline", className: "rounded-xl" })}>
+                <FileUp aria-hidden /> Impor Word/Excel
+              </Link>
+            )}
+            {features.includes("bank-soal.massal") && (
+              <Link href={`/bank-soal/massal?subject=${subject.id}`} className={buttonVariants({ variant: "outline", className: "rounded-xl" })}>
+                <Layers aria-hidden /> Buat massal
+              </Link>
+            )}
             <FormDialog
               title="Tambah Soal"
               description={`${subject.code} · ${subject.name}`}
@@ -164,9 +170,11 @@ export default async function QuestionBankPage({ searchParams }: PageProps<"/ban
           title={bankTotal === 0 ? "Bank soal masih kosong" : "Tidak ada soal yang cocok"}
           description="Tambah satu per satu, buat banyak soal sekaligus, atau impor dari Word/Excel memakai templat SmartTest."
           action={
-            <Link href={`/bank-soal/impor?subject=${subject.id}`} className={buttonVariants({ size: "sm" })}>
-              <FileUp aria-hidden /> Impor soal
-            </Link>
+            features.includes("bank-soal.impor") && (
+              <Link href={`/bank-soal/impor?subject=${subject.id}`} className={buttonVariants({ size: "sm" })}>
+                <FileUp aria-hidden /> Impor soal
+              </Link>
+            )
           }
         />
       ) : (

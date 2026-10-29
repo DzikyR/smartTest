@@ -1,5 +1,7 @@
 import ExcelJS from "exceljs"
 import { getCurrentUser } from "@/lib/auth/dal"
+import { isFeatureEnabled } from "@/lib/features/access"
+import { FEATURE_DISABLED } from "@/lib/features/registry"
 import { getManagedExam } from "@/lib/data/access"
 import { loadExamReport } from "@/lib/data/exam-report"
 import { formatDateTime } from "@/lib/format"
@@ -9,6 +11,7 @@ import { EXAM_KIND_LABEL } from "@/lib/labels"
 export async function GET(_request: Request, { params }: RouteContext<"/ujian-kelola/[id]/ekspor">) {
   const user = await getCurrentUser()
   if (!user || user.role === "PESERTA" || user.mustChangePassword) return new Response("Tidak diizinkan", { status: 403 })
+  if (!(await isFeatureEnabled("ujian-kelola.ekspor", user.role))) return new Response(FEATURE_DISABLED, { status: 403 })
   const { id } = await params
   const exam = await getManagedExam(user, id)
   if (!exam) return new Response("Tidak ditemukan", { status: 404 })

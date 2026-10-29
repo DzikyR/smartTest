@@ -1,4 +1,6 @@
 import { getCurrentUser } from "@/lib/auth/dal"
+import { isFeatureEnabled } from "@/lib/features/access"
+import { FEATURE_DISABLED } from "@/lib/features/registry"
 import { buildExcelTemplate, buildWordTemplate } from "@/lib/exam/office"
 
 const FILES = {
@@ -10,6 +12,7 @@ const FILES = {
 export async function GET(_request: Request, { params }: RouteContext<"/bank-soal/templat/[format]">) {
   const user = await getCurrentUser()
   if (!user || user.role === "PESERTA") return new Response("Tidak diizinkan", { status: 403 })
+  if (!(await isFeatureEnabled("bank-soal.impor", user.role))) return new Response(FEATURE_DISABLED, { status: 403 })
   const { format } = await params
   const file = FILES[format as keyof typeof FILES]
   if (!file) return new Response("Tidak ditemukan", { status: 404 })

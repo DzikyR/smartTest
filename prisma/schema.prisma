@@ -319,3 +319,77 @@ model Attempt {
   @@index([userId, status])
   @@map("attempts")
 }
+
+// -----------------------------------------------------------------------------
+//  KONTROL FITUR (Feature Toggle) — dikelola SUPER_ADMIN
+//
+//  Katalog fitur ada di kode (src/lib/features/registry.ts). Tabel ini hanya
+//  menyimpan override: tanpa baris = perilaku bawaan registry. Toggle hanya
+//  mempersempit akses (AND dengan role), SUPER_ADMIN selalu lolos.
+// -----------------------------------------------------------------------------
+
+model Feature {
+  /// Key registry, mis. "bank-soal.impor"
+  key       String              @id
+  /// Saklar global: false = nonaktif untuk semua role selain SUPER_ADMIN
+  enabled   Boolean             @default(true)
+  updatedAt DateTime            @updatedAt
+  roles     FeatureRoleAccess[]
+
+  @@map("features")
+}
+
+model FeatureRoleAccess {
+  featureKey String
+  role       Role
+  enabled    Boolean
+  updatedAt  DateTime @updatedAt
+
+  feature Feature @relation(fields: [featureKey], references: [key], onDelete: Cascade)
+
+  @@id([featureKey, role])
+  @@map("feature_role_access")
+}
+
+// -----------------------------------------------------------------------------
+//  TAMPILAN SITUS (CMS & White-label) — dikelola SUPER_ADMIN
+//
+//  Nilai bawaan tetap di kode; tabel hanya menyimpan override. Tanpa baris =
+//  tampilan bawaan, sehingga situs tetap utuh walau tabel kosong.
+// -----------------------------------------------------------------------------
+
+/// Pengaturan terstruktur, mis. key "theme" → { light: {primary, ...}, dark: {...} }
+model SiteSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("site_settings")
+}
+
+/// Override teks; key mengikuti katalog src/content/texts.ts
+model ContentText {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@map("content_texts")
+}
+
+enum BrandAssetKind {
+  LOGO_LIGHT
+  LOGO_DARK
+  FAVICON
+}
+
+/// Logo & favicon disimpan di DB (kecil) agar lolos CSP 'self' dan tidak bergantung folder public
+model BrandAsset {
+  kind      BrandAssetKind @id
+  mimeType  String
+  data      Bytes
+  /// Hash isi berkas — dipakai sebagai versi URL (?v=) untuk cache browser immutable
+  sha256    String
+  updatedAt DateTime       @updatedAt
+
+  @@map("brand_assets")
+}

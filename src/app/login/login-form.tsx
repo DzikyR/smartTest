@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
-export function LoginForm({ callbackUrl }: { callbackUrl?: string }) {
+export function LoginForm({ callbackUrl, submitLabel }: { callbackUrl?: string; submitLabel: string }) {
   const [state, action, pending] = useActionState<LoginState, FormData>(loginAction, {})
   const [show, setShow] = useState(false)
 
@@ -41,7 +41,7 @@ export function LoginForm({ callbackUrl }: { callbackUrl?: string }) {
       </div>
       <Button type="submit" disabled={pending} className="mt-2 h-11 rounded-xl text-base">
         {pending && <Loader2 className="animate-spin" aria-hidden />}
-        Masuk
+        {submitLabel}
       </Button>
     </form>
   )

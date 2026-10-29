@@ -39,6 +39,8 @@
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --color-primary-mid: var(--primary-mid);
+  --color-primary-deep: var(--primary-deep);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -88,6 +90,9 @@
   --chart-4: oklch(0.66 0.13 235);
   --chart-5: oklch(0.65 0.2 10);
   --radius: 0.75rem;
+  /* Turunan primary untuk gradien — otomatis mengikuti warna tema yang diatur Super Admin. */
+  --primary-mid: color-mix(in oklch, var(--primary), black 7%);
+  --primary-deep: color-mix(in oklch, var(--primary), black 20%);
   --sidebar: oklch(1 0 0);
   --sidebar-foreground: oklch(0.42 0.03 280);
   --sidebar-primary: oklch(0.52 0.22 281);

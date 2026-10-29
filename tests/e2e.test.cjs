@@ -31,9 +31,9 @@ async function act(jar, page, file, name, args) {
   let result; for (const l of (await res.text()).split("\n")) { const m = l.match(/^[0-9a-f]+:(.*)$/); if (m) try { const v = JSON.parse(m[1]); if (v && typeof v.ok === "boolean") result = v } catch {} }
   return result
 }
-const get = async (jar, path) => fetch(BASE + path, { headers: { cookie: jar.header }, redirect: "manual" })
+const get = async (jar, path) => fetch(BASE + path, { headers: { cookie: jar?.header ?? "" }, redirect: "manual" })
 const html = async (jar, path) => (await get(jar, path)).text()
-const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/actions", U = "pengguna/actions", G = "kelompok/actions"
+const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/actions", U = "pengguna/actions", G = "kelompok/actions", F = "fitur/actions", S = "situs/actions"
 
 ;(async () => {
   const pg = new Client({ connectionString: process.env.DATABASE_URL }); await pg.connect()
@@ -45,7 +45,7 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
   const admin = await login("admin"), rina = await login("dosen.rina"), budi = await login("dosen.budi")
   const p1 = await login("2401001"), p1b = await login("2401001"), p5 = await login("2401005")
   const T = (x) => `/ujian/${x}`
-  let r
+  let r, savedFeatures, sa, siteTouched = false
 
   try {
     // ---------- RBAC dasar ----------
@@ -177,7 +177,107 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
     check("Impor pengguna Excel: 1 dibuat, 1 ditolak (kelompok tidak ada)", r?.ok && r.data?.accounts?.length === 1 && r.data.errors.length === 1, JSON.stringify(r))
     r = await act(admin, `/admin/kelompok/${ifa.id}`, G, "addMembers", [ifa.id, PREV, form({ identifiers: "e2e9101\n2401005\ntidakada" })])
     check("Tambah anggota kelompok dari daftar NIM (yang tidak ada dilaporkan)", r?.ok && /tidak ditemukan: tidakada/.test(r.message), JSON.stringify(r))
+
+    // ---------- Kontrol fitur (Super Admin) ----------
+    // Pengaturan yang ada disimpan lalu dikosongkan lewat aksi (bukan SQL langsung) agar cache server ikut di-invalidate.
+    sa = await login("superadmin")
+    savedFeatures = { features: await all(`select * from features`), access: await all(`select * from feature_role_access`) }
+    for (const f of savedFeatures.features) await act(sa, "/admin/fitur", F, "resetFeature", [f.key])
+    const auditBefore = (await one(`select count(*)::int n from audit_logs where action in ('FEATURE_TOGGLED','FEATURE_RESET')`)).n
+    const IMPOR_PAGE = "Periksa pratinjau sebelum disimpan", KELOMPOK_PAGE = "Kelompokkan peserta"
+    res = await get(admin, "/admin/fitur")
+    check("Admin membuka /admin/fitur → dialihkan (khusus Super Admin)", res.status >= 300 && res.status < 400, res.status)
+    r = await act(rina, "/admin/fitur", F, "setFeatureRole", ["bank-soal.impor", "DOSEN", false])
+    check("Dosen memanggil aksi toggle langsung → ditolak", r?.ok !== true && !(await one(`select 1 from features`)), JSON.stringify(r))
+    check("Super Admin melihat matriks fitur", (await html(sa, "/admin/fitur")).includes("Impor Soal Word/Excel"))
+
+    r = await act(sa, "/admin/fitur", F, "setFeatureRole", ["bank-soal.impor", "DOSEN", false])
+    check("Matikan Impor untuk Dosen", r?.ok, JSON.stringify(r))
+    check("Dosen: halaman impor tidak tampil", !(await html(rina, "/bank-soal/impor")).includes(IMPOR_PAGE))
+    r = await act(rina, "/bank-soal/impor", B, "previewImport", [PREV, form({ source: "text", text: "1. E2E fitur?\nA. a\n*B. b" })])
+    check("Dosen: aksi pratinjau impor ditolak", r?.ok === false && /dinonaktifkan/.test(r.error), JSON.stringify(r))
+    check("Dosen: unduh templat soal → 403", (await get(rina, "/bank-soal/templat/excel")).status === 403)
+    const rinaBank = await html(rina, "/bank-soal")
+    check("Dosen: tombol & menu impor hilang, Buat massal tetap ada", !rinaBank.includes("/bank-soal/impor") && rinaBank.includes("/bank-soal/massal"))
+    check("Admin tidak terdampak (impor tetap bisa)", (await html(admin, "/bank-soal/impor")).includes(IMPOR_PAGE))
+    r = await act(sa, "/admin/fitur", F, "setFeatureRole", ["admin.kelompok", "DOSEN", true])
+    check("Toggle tidak bisa menambah akses ke role yang tidak berhak", r?.ok === false, JSON.stringify(r))
+
+    r = await act(sa, "/admin/fitur", F, "setFeatureGlobal", ["admin.kelompok", false])
+    check("Matikan Kelompok Peserta secara global", r?.ok, JSON.stringify(r))
+    check("Admin: halaman kelompok tidak tampil & menu hilang", !(await html(admin, "/admin/kelompok")).includes(KELOMPOK_PAGE) && !(await html(admin, "/dashboard")).includes('href="/admin/kelompok"'))
+    r = await act(admin, "/admin/kelompok", G, "createGroup", [PREV, form({ name: "E2E Fitur" })])
+    check("Admin: aksi buat kelompok ditolak", r?.ok === false && !(await one(`select 1 from groups where name='E2E Fitur'`)), JSON.stringify(r))
+    check("Super Admin tetap bisa membuka kelompok", (await html(sa, "/admin/kelompok")).includes(KELOMPOK_PAGE))
+
+    r = await act(sa, "/admin/fitur", F, "setFeatureRole", ["ujian.mulai", "PESERTA", false])
+    check("Matikan Memulai Ujian untuk Peserta", r?.ok, JSON.stringify(r))
+    r = await act(p1, T(exam.id), P, "startExam", [exam.id, PREV, form({ token: "ABC12" })])
+    check("Peserta: mulai ujian baru ditolak + info di Ujian Saya", r?.ok === false && /dinonaktifkan/.test(r.error) && (await html(p1, "/ujian")).includes("Memulai ujian baru sedang dinonaktifkan"), JSON.stringify(r))
+
+    r = await act(sa, "/admin/fitur", F, "resetFeature", ["bank-soal.impor"])
+    check("Reset ke bawaan → Dosen bisa impor lagi", r?.ok && (await html(rina, "/bank-soal/impor")).includes(IMPOR_PAGE), JSON.stringify(r))
+    check("Perubahan fitur tercatat di log audit", (await one(`select count(*)::int n from audit_logs where action in ('FEATURE_TOGGLED','FEATURE_RESET')`)).n - auditBefore === 4)
+
+    // ---------- Tampilan situs: tema, teks, logo (Super Admin) ----------
+    // Dilewati bila sudah ada pengaturan tampilan sungguhan, agar tidak tertimpa.
+    const siteInUse = (await one(`select (select count(*) from site_settings) + (select count(*) from content_texts) + (select count(*) from brand_assets) n`)).n > 0
+    if (siteInUse) console.log("SKIP  Tampilan situs: sudah ada pengaturan tampilan — uji dilewati")
+    else {
+      siteTouched = true
+      r = await act(admin, "/admin/situs", S, "saveTheme", [{ light: { primary: "#0f766e" }, dark: {} }])
+      check("Admin memanggil aksi tema langsung → ditolak", r?.ok !== true && !(await one(`select 1 from site_settings`)), JSON.stringify(r))
+      r = await act(sa, "/admin/situs", S, "saveTheme", [{ light: { primary: "red}body{display:none" }, dark: {} }])
+      check("Warna berisi CSS injection → ditolak", r?.ok === false, JSON.stringify(r))
+      r = await act(sa, "/admin/situs", S, "saveTheme", [{ light: { primary: "#0F766E" }, dark: { background: "#0b1120" } }])
+      let login = await html(null, "/login")
+      check("Simpan tema → halaman masuk (statis) langsung memakai warna baru", r?.ok && login.includes('id="site-theme"') && login.includes("--primary:#0f766e") && login.includes(":root.dark{--background:#0b1120"), JSON.stringify(r))
+      check("Tema juga tampil di halaman aplikasi", (await html(p1, "/dashboard")).includes("--primary:#0f766e"))
+
+      r = await act(sa, "/admin/situs", S, "saveTexts", [{ "dashboard.staff.toGrade": "Ada {jumlah} esai" }])
+      check("Teks dengan placeholder tak dikenal → ditolak per field", r?.ok === false && !!r.fieldErrors?.["dashboard.staff.toGrade"], JSON.stringify(r))
+      r = await act(sa, "/admin/situs", S, "saveTexts", [{ "app.name": "UjianKu", "login.title": "Halo, peserta!", "login.cta": "Masuk" }])
+      login = await html(null, "/login")
+      check("Simpan teks → judul tab, nama, dan judul form berubah; teks = bawaan tidak disimpan", r?.ok && login.includes("<title>Masuk · UjianKu</title>") && login.includes("Halo, peserta!") && (await one(`select count(*)::int n from content_texts`)).n === 2, JSON.stringify(r))
+      const version = async () => (await (await fetch(BASE + "/api/site/version")).json()).version
+      const v1 = await version()
+      check("Versi situs stabil selama tidak ada perubahan", typeof v1 === "string" && (await version()) === v1)
+      r = await act(sa, "/admin/situs", S, "saveTexts", [{ "app.name": "UjianKu", "login.title": "Halo, peserta!", "nav.bank-soal": "Koleksi Soal" }])
+      check("Simpan pengaturan → versi situs berubah (tab terbuka di-refresh)", r?.ok && (await version()) !== v1, JSON.stringify(r))
+      const rinaDash = await html(rina, "/dashboard")
+      check("Label menu ubahan tampil di sidebar staf", rinaDash.includes(">Koleksi Soal<") && !rinaDash.includes(">Bank Soal<"))
+
+      const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64")
+      r = await act(sa, "/admin/situs", S, "uploadBrandAsset", ["LOGO_LIGHT", PREV, form({ file: new File(['<svg onload="alert(1)"/>'], "logo.png", { type: "image/png" }) })])
+      check("SVG yang menyamar sebagai .png → ditolak (cek isi berkas)", r?.ok === false && !!r.fieldErrors?.file, JSON.stringify(r))
+      r = await act(sa, "/admin/situs", S, "uploadBrandAsset", ["LOGO_LIGHT", PREV, form({ file: new File([png], "logo.png", { type: "image/png" }) })])
+      const r2 = await act(sa, "/admin/situs", S, "uploadBrandAsset", ["FAVICON", PREV, form({ file: new File([png], "favicon.png", { type: "image/png" }) })])
+      login = await html(null, "/login")
+      const logoUrl = login.match(/\/branding\/logo-light\?v=[0-9a-f]+/)?.[0]
+      check("Unggah logo & favicon → tampil di halaman masuk", r?.ok && r2?.ok && !!logoUrl && /rel="icon" href="\/branding\/favicon\?v=/.test(login), JSON.stringify([r, r2]))
+      const asset = await fetch(BASE + logoUrl)
+      check("Aset logo: publik, image/png, cache immutable, CSP sandbox", asset.status === 200 && asset.headers.get("content-type") === "image/png" && /immutable/.test(asset.headers.get("cache-control")) && /sandbox/.test(asset.headers.get("content-security-policy")) && Buffer.from(await asset.arrayBuffer()).equals(png))
+
+      r = await act(sa, "/admin/situs", S, "resetTheme", [])
+      await act(sa, "/admin/situs", S, "deleteBrandAsset", ["LOGO_LIGHT"])
+      await act(sa, "/admin/situs", S, "deleteBrandAsset", ["FAVICON"])
+      await act(sa, "/admin/situs", S, "saveTexts", [{ "app.name": "", "login.title": "", "nav.bank-soal": "" }])
+      login = await html(null, "/login")
+      check("Kembalikan bawaan → tanpa CSS tema, logo/teks bawaan", r?.ok && !login.includes('id="site-theme"') && !login.includes("/branding/") && login.includes("<title>Masuk · SmartTest</title>"))
+      siteTouched = false
+    }
   } finally {
+    if (siteTouched) {
+      await act(sa, "/admin/situs", S, "resetTheme", [])
+      for (const kind of ["LOGO_LIGHT", "LOGO_DARK", "FAVICON"]) await act(sa, "/admin/situs", S, "deleteBrandAsset", [kind])
+      await act(sa, "/admin/situs", S, "saveTexts", [Object.fromEntries((await all(`select key from content_texts`)).map((x) => [x.key, ""]))])
+    }
+    if (savedFeatures) {
+      for (const key of ["bank-soal.impor", "admin.kelompok", "ujian.mulai"]) await act(sa, "/admin/fitur", F, "resetFeature", [key])
+      for (const a of savedFeatures.access) await act(sa, "/admin/fitur", F, "setFeatureRole", [a.featureKey, a.role, a.enabled])
+      for (const f of savedFeatures.features) if (!f.enabled) await act(sa, "/admin/fitur", F, "setFeatureGlobal", [f.key, false])
+    }
+    await pg.query(`delete from groups where name like 'E2E%'`)
     await pg.query(`delete from exams where title like 'E2E%'`)
     await pg.query(`delete from questions where prompt like 'E2E%'`)
     await pg.query(`delete from group_members where "groupId"=$1 and "userId"=(select id from users where username='2401005')`, [ifa.id])

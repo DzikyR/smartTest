@@ -5,9 +5,17 @@ import { z } from "zod"
 import { db } from "@/lib/db"
 import { audit } from "@/lib/audit"
 import { requireRole } from "@/lib/auth/dal"
+import { isFeatureEnabled } from "@/lib/features/access"
+import { FEATURE_DISABLED } from "@/lib/features/registry"
 import { ADMINS } from "@/lib/auth/roles"
 import { fail, formObject, ok, prismaCode, zodFail, type ActionResult } from "@/lib/action-result"
 import { optionalText } from "@/lib/validation"
+
+/** Admin + fitur Kelompok Peserta aktif; null bila fitur dinonaktifkan. */
+async function requireGroupAdmin() {
+  const user = await requireRole(...ADMINS)
+  return (await isFeatureEnabled("admin.kelompok", user.role)) ? user : null
+}
 
 const schema = z.object({
   name: z.string().trim().min(2, "Minimal 2 karakter").max(80),
@@ -15,7 +23,8 @@ const schema = z.object({
 })
 
 export async function createGroup(_prev: ActionResult, formData: FormData) {
-  const actor = await requireRole(...ADMINS)
+  const actor = await requireGroupAdmin()
+  if (!actor) return fail(FEATURE_DISABLED)
   const parsed = schema.safeParse(formObject(formData))
   if (!parsed.success) return zodFail(parsed.error)
   try {
@@ -30,7 +39,7 @@ export async function createGroup(_prev: ActionResult, formData: FormData) {
 }
 
 export async function updateGroup(id: string, _prev: ActionResult, formData: FormData) {
-  await requireRole(...ADMINS)
+  if (!(await requireGroupAdmin())) return fail(FEATURE_DISABLED)
   const parsed = schema.safeParse(formObject(formData))
   if (!parsed.success) return zodFail(parsed.error)
   try {
@@ -44,7 +53,8 @@ export async function updateGroup(id: string, _prev: ActionResult, formData: For
 }
 
 export async function deleteGroup(id: string): Promise<ActionResult<{ href: string }>> {
-  const actor = await requireRole(...ADMINS)
+  const actor = await requireGroupAdmin()
+  if (!actor) return fail(FEATURE_DISABLED)
   const g = await db.group.delete({ where: { id }, select: { name: true } }).catch(() => null)
   if (!g) return fail("Kelompok tidak ditemukan.")
   await audit("GROUP_DELETED", { userId: actor.id, entity: "Group", entityId: id, severity: "WARNING", metadata: { name: g.name } })
@@ -54,7 +64,7 @@ export async function deleteGroup(id: string): Promise<ActionResult<{ href: stri
 
 /** Tambah anggota dari daftar email/username (satu per baris, koma, atau spasi). */
 export async function addMembers(groupId: string, _prev: ActionResult, formData: FormData) {
-  await requireRole(...ADMINS)
+  if (!(await requireGroupAdmin())) return fail(FEATURE_DISABLED)
   const ids = [...new Set(formData.getAll("userId").map(String).filter(Boolean))]
   const list = String(formData.get("identifiers") ?? "")
     .split(/[\s,;]+/)
@@ -75,7 +85,7 @@ export async function addMembers(groupId: string, _prev: ActionResult, formData:
 }
 
 export async function removeMember(groupId: string, userId: string): Promise<ActionResult> {
-  await requireRole(...ADMINS)
+  if (!(await requireGroupAdmin())) return fail(FEATURE_DISABLED)
   await db.groupMember.deleteMany({ where: { groupId, userId } })
   refresh()
   return ok("Peserta dikeluarkan dari kelompok.")

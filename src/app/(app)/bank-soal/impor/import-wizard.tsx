@@ -185,7 +185,7 @@ export function ImportWizard({
       </section>
 
       <aside className="flex flex-col gap-4">
-        <div className="rounded-2xl bg-gradient-to-br from-primary to-[oklch(0.45_0.2_290)] p-5 text-primary-foreground">
+        <div className="rounded-2xl bg-gradient-to-br from-primary to-primary-deep p-5 text-primary-foreground">
           <p className="font-semibold">Unduh templat</p>
           <p className="mt-1 text-sm text-primary-foreground/80">Isi templat lalu unggah kembali. Contoh soal & petunjuk sudah disertakan.</p>
           <div className="mt-4 flex flex-wrap gap-2">

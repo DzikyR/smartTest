@@ -42,7 +42,11 @@ const nextConfig: NextConfig = {
     serverActions: { bodySizeLimit: "6mb" },
   },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }]
+    return [
+      { source: "/:path((?!branding/).*)", headers: securityHeaders },
+      // Aset unggahan Super Admin: tidak boleh menjalankan apa pun walau dibuka langsung.
+      { source: "/branding/:path*", headers: [...securityHeaders.filter((h) => h.key !== "Content-Security-Policy"), { key: "Content-Security-Policy", value: "default-src 'none'; sandbox" }] },
+    ]
   },
   turbopack: {
     rules: {

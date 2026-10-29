@@ -1,0 +1,321 @@
+// =============================================================================
+//  SmartTest — Skema Database
+//
+//  Mata Uji (Mata Kuliah / Umum) ─▶ Bank Soal
+//                                └▶ Ujian ─▶ Soal Ujian (salinan dari bank)
+//                                        ├▶ Kelompok Peserta (atau semua peserta)
+//                                        └▶ Percobaan (jawaban, nilai, pelanggaran)
+//
+//  Role: SUPER_ADMIN (seluruh sistem) · ADMIN (pengguna, mata uji, kelompok,
+//  semua ujian) · DOSEN (mata uji yang diampu) · PESERTA (mengerjakan ujian)
+// =============================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  DOSEN
+  PESERTA
+}
+
+/// Mata uji: mata kuliah, atau umum (mis. tes masuk, TOEFL, psikotes, pelatihan)
+enum SubjectType {
+  MATA_KULIAH
+  UMUM
+}
+
+enum QuestionType {
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+  SHORT_ANSWER
+  ESSAY
+}
+
+enum ExamKind {
+  KUIS
+  UTS
+  UAS
+  TRYOUT
+  LATIHAN
+  LAINNYA
+}
+
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED // menunggu koreksi esai
+  GRADED
+}
+
+enum LogSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+// -----------------------------------------------------------------------------
+//  PENGGUNA
+// -----------------------------------------------------------------------------
+
+model User {
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  /// NIM / NIP / nomor peserta — dapat dipakai untuk login
+  username           String?   @unique
+  name               String
+  passwordHash       String
+  role               Role      @default(PESERTA)
+  isActive           Boolean   @default(true)
+  failedLoginCount   Int       @default(0)
+  lockedUntil        DateTime?
+  /// true untuk password sementara — wajib diganti saat login
+  mustChangePassword Boolean   @default(false)
+  /// Sesi (JWT) yang dibuat sebelum waktu ini tidak berlaku
+  passwordChangedAt  DateTime?
+  lastLoginAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  teaching       SubjectLecturer[]
+  memberships    GroupMember[]
+  questions      Question[]
+  examsCreated   Exam[]
+  attempts       Attempt[]         @relation("AttemptUser")
+  attemptsGraded Attempt[]         @relation("AttemptGrader")
+  auditLogs      AuditLog[]
+
+  @@index([role])
+  @@map("users")
+}
+
+model AuditLog {
+  id        String      @id @default(cuid())
+  action    String
+  severity  LogSeverity @default(INFO)
+  entity    String?
+  entityId  String?
+  ipAddress String?
+  userAgent String?
+  metadata  Json?
+  createdAt DateTime    @default(now())
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}
+
+// -----------------------------------------------------------------------------
+//  MATA UJI & KELOMPOK PESERTA
+// -----------------------------------------------------------------------------
+
+model Subject {
+  id          String      @id @default(cuid())
+  /// contoh: "IF201" atau "UMUM-TPA"
+  code        String      @unique
+  name        String
+  type        SubjectType @default(MATA_KULIAH)
+  description String?
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  lecturers SubjectLecturer[]
+  questions Question[]
+  exams     Exam[]
+
+  @@map("subjects")
+}
+
+/// Dosen pengampu/pengelola mata uji — berhak mengelola bank soal & ujiannya.
+model SubjectLecturer {
+  subjectId String
+  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([subjectId, userId])
+  @@index([userId])
+  @@map("subject_lecturers")
+}
+
+/// Kelompok peserta, mis. kelas "IF-2A" atau "Gelombang 1".
+model Group {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+
+  members GroupMember[]
+  exams   ExamGroup[]
+
+  @@map("groups")
+}
+
+model GroupMember {
+  groupId String
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, userId])
+  @@index([userId])
+  @@map("group_members")
+}
+
+// -----------------------------------------------------------------------------
+//  BANK SOAL
+// -----------------------------------------------------------------------------
+
+model Question {
+  id         String       @id @default(cuid())
+  type       QuestionType
+  prompt     String
+  /// Pilihan jawaban: [{ id: "a".."f", text }]
+  options    Json?
+  /// Kunci jawaban — TIDAK PERNAH dikirim ke peserta
+  answerKey  Json?
+  points     Float        @default(1)
+  topic      String?
+  /// 1 = Mudah, 2 = Sedang, 3 = Sulit
+  difficulty Int          @default(2)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  subjectId   String
+  subject     Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([subjectId, topic])
+  @@map("questions")
+}
+
+// -----------------------------------------------------------------------------
+//  UJIAN
+// -----------------------------------------------------------------------------
+
+model Exam {
+  id               String    @id @default(cuid())
+  title            String
+  kind             ExamKind  @default(KUIS)
+  instructions     String?
+  /// Waktu pengerjaan (menit) — diatur admin/dosen
+  durationMinutes  Int
+  /// Jadwal: kosong = langsung dibuka / tanpa batas tutup
+  startAt          DateTime?
+  endAt            DateTime?
+  maxAttempts      Int       @default(1)
+  /// Jumlah soal per halaman pada lembar ujian peserta (1 = satu soal per layar)
+  questionsPerPage Int       @default(1)
+  /// Nilai minimal lulus (0–100), opsional
+  passingScore     Float?
+  shuffleQuestions Boolean   @default(true)
+  shuffleOptions   Boolean   @default(true)
+  showScore        Boolean   @default(true)
+  /// Terbuka untuk semua peserta aktif (bila false: hanya kelompok terpilih)
+  openToAll        Boolean   @default(false)
+  token            String?
+  /// Sesi aktif — false = tidak ada percobaan baru (dihentikan pengawas)
+  sessionActive    Boolean   @default(true)
+  publishedAt      DateTime?
+  rules            String?
+  // --- Pengamanan tingkat 1 ---
+  requireFullscreen Boolean  @default(false)
+  blockCopyPaste    Boolean  @default(false)
+  lockDevice        Boolean  @default(false)
+  maxLeaves         Int?
+  allowedIps        String?
+  // --- Pengamanan tingkat 2 ---
+  requireSeb        Boolean  @default(false)
+  sebConfigKeys     String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  subjectId   String
+  subject     Subject @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  questions ExamQuestion[]
+  groups    ExamGroup[]
+  attempts  Attempt[]
+
+  @@index([subjectId])
+  @@index([startAt])
+  @@map("exams")
+}
+
+/// Soal di dalam ujian — salinan (snapshot) dari bank agar ujian tidak berubah bila bank diedit.
+model ExamQuestion {
+  id        String       @id @default(cuid())
+  type      QuestionType
+  prompt    String
+  options   Json?
+  answerKey Json?
+  points    Float        @default(1)
+  order     Int          @default(0)
+  /// Asal soal di bank (informasi saja)
+  sourceId  String?
+
+  examId String
+  exam   Exam   @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  @@index([examId, order])
+  @@map("exam_questions")
+}
+
+model ExamGroup {
+  examId  String
+  exam    Exam   @relation(fields: [examId], references: [id], onDelete: Cascade)
+  groupId String
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([examId, groupId])
+  @@index([groupId])
+  @@map("exam_groups")
+}
+
+model Attempt {
+  id               String        @id @default(cuid())
+  attemptNo        Int           @default(1)
+  status           AttemptStatus @default(IN_PROGRESS)
+  startedAt        DateTime      @default(now())
+  submittedAt      DateTime?
+  gradedAt         DateTime?
+  /// Tambahan waktu dari pengawas (menit)
+  extraMinutes     Int           @default(0)
+  /// { [examQuestionId]: jawaban }
+  answers          Json?
+  flagged          Json?
+  /// Urutan soal & pilihan untuk peserta ini
+  layout           Json?
+  questionScores   Json?
+  /// Nilai akhir 0–100
+  score            Float?
+  feedback         String?
+  leaveCount       Int           @default(0)
+  lastSavedAt      DateTime?
+  deviceTokenHash  String?
+  autoSubmitReason String?
+
+  examId     String
+  exam       Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User    @relation("AttemptUser", fields: [userId], references: [id], onDelete: Cascade)
+  gradedById String?
+  gradedBy   User?   @relation("AttemptGrader", fields: [gradedById], references: [id], onDelete: SetNull)
+
+  @@unique([examId, userId, attemptNo])
+  @@index([userId, status])
+  @@map("attempts")
+}

@@ -1,0 +1,165 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * SmartTest — tema "E-Learning dashboard": kanvas lavender keabu-abuan, kartu
+ * putih bersudut besar, aksen ungu-indigo, dan warna pastel untuk kartu statistik.
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  /* Aksen pastel kartu statistik */
+  --color-tint-violet: var(--tint-violet);
+  --color-tint-violet-fg: var(--tint-violet-fg);
+  --color-tint-orange: var(--tint-orange);
+  --color-tint-orange-fg: var(--tint-orange-fg);
+  --color-tint-green: var(--tint-green);
+  --color-tint-green-fg: var(--tint-green-fg);
+  --color-tint-sky: var(--tint-sky);
+  --color-tint-sky-fg: var(--tint-sky-fg);
+  --color-tint-rose: var(--tint-rose);
+  --color-tint-rose-fg: var(--tint-rose-fg);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  --background: oklch(0.972 0.006 285);
+  --foreground: oklch(0.21 0.03 280);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.03 280);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.03 280);
+  --primary: oklch(0.52 0.22 281);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.955 0.02 285);
+  --secondary-foreground: oklch(0.36 0.12 281);
+  --muted: oklch(0.965 0.008 285);
+  --muted-foreground: oklch(0.55 0.025 280);
+  --accent: oklch(0.955 0.02 285);
+  --accent-foreground: oklch(0.36 0.12 281);
+  --destructive: oklch(0.6 0.22 22);
+  --border: oklch(0.925 0.01 285);
+  --input: oklch(0.91 0.012 285);
+  --ring: oklch(0.62 0.18 281);
+  --chart-1: #5b4fe9; /* tervalidasi: band terang & kontras pada permukaan terang */
+  --chart-2: oklch(0.72 0.16 55);
+  --chart-3: oklch(0.68 0.14 165);
+  --chart-4: oklch(0.66 0.13 235);
+  --chart-5: oklch(0.65 0.2 10);
+  --radius: 0.75rem;
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.42 0.03 280);
+  --sidebar-primary: oklch(0.52 0.22 281);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.96 0.02 285);
+  --sidebar-accent-foreground: oklch(0.36 0.12 281);
+  --sidebar-border: oklch(0.935 0.01 285);
+  --sidebar-ring: oklch(0.62 0.18 281);
+  --tint-violet: oklch(0.95 0.035 285);
+  --tint-violet-fg: oklch(0.5 0.21 281);
+  --tint-orange: oklch(0.96 0.04 65);
+  --tint-orange-fg: oklch(0.62 0.17 50);
+  --tint-green: oklch(0.96 0.04 165);
+  --tint-green-fg: oklch(0.55 0.12 165);
+  --tint-sky: oklch(0.96 0.03 235);
+  --tint-sky-fg: oklch(0.55 0.13 240);
+  --tint-rose: oklch(0.96 0.03 10);
+  --tint-rose-fg: oklch(0.58 0.2 15);
+}
+
+.dark {
+  --background: oklch(0.17 0.02 280);
+  --foreground: oklch(0.96 0.005 285);
+  --card: oklch(0.22 0.025 280);
+  --card-foreground: oklch(0.96 0.005 285);
+  --popover: oklch(0.22 0.025 280);
+  --popover-foreground: oklch(0.96 0.005 285);
+  --primary: oklch(0.68 0.17 281);
+  --primary-foreground: oklch(0.15 0.02 280);
+  --secondary: oklch(0.28 0.04 281);
+  --secondary-foreground: oklch(0.9 0.04 285);
+  --muted: oklch(0.26 0.025 280);
+  --muted-foreground: oklch(0.72 0.02 280);
+  --accent: oklch(0.28 0.04 281);
+  --accent-foreground: oklch(0.9 0.04 285);
+  --destructive: oklch(0.7 0.19 22);
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.68 0.17 281);
+  --chart-1: #8a7ef0; /* tervalidasi: band terang & kontras pada permukaan gelap */
+  --chart-2: oklch(0.78 0.14 60);
+  --chart-3: oklch(0.74 0.13 165);
+  --chart-4: oklch(0.72 0.12 235);
+  --chart-5: oklch(0.72 0.17 10);
+  --sidebar: oklch(0.2 0.025 280);
+  --sidebar-foreground: oklch(0.8 0.02 280);
+  --sidebar-primary: oklch(0.68 0.17 281);
+  --sidebar-primary-foreground: oklch(0.15 0.02 280);
+  --sidebar-accent: oklch(0.28 0.04 281);
+  --sidebar-accent-foreground: oklch(0.92 0.03 285);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.68 0.17 281);
+  --tint-violet: oklch(0.3 0.07 281);
+  --tint-violet-fg: oklch(0.82 0.1 285);
+  --tint-orange: oklch(0.32 0.06 55);
+  --tint-orange-fg: oklch(0.85 0.11 65);
+  --tint-green: oklch(0.31 0.05 165);
+  --tint-green-fg: oklch(0.82 0.1 165);
+  --tint-sky: oklch(0.31 0.05 235);
+  --tint-sky-fg: oklch(0.83 0.08 235);
+  --tint-rose: oklch(0.31 0.06 10);
+  --tint-rose-fg: oklch(0.84 0.1 10);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+  html {
+    @apply font-sans;
+  }
+}

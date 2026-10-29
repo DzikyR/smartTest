@@ -1,0 +1,7 @@
+{
+  "name": "smarttest-browser-tests",
+  "private": true,
+  "dependencies": {
+    "puppeteer-core": "^24.43.1"
+  }
+}

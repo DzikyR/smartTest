@@ -4,10 +4,12 @@ import { refresh } from "next/cache"
 import ExcelJS from "exceljs"
 import { z } from "zod"
 import type { Role } from "@/generated/prisma/enums"
+import type { Prisma } from "@/generated/prisma/client"
 import { db } from "@/lib/db"
 import { audit } from "@/lib/audit"
 import { requireRole, type CurrentUser } from "@/lib/auth/dal"
 import { ADMINS } from "@/lib/auth/roles"
+import { MAX_DELETE, MAX_GENERATE, ROLES, userWhere } from "@/lib/data/users"
 import { generateTempPassword, hashPassword } from "@/lib/password"
 import { fail, formObject, ok, prismaCode, zodFail, type ActionResult } from "@/lib/action-result"
 import { MAX_UPLOAD_BYTES } from "@/lib/exam/office"
@@ -194,4 +196,131 @@ export async function importUsers(_prev: ActionResult<unknown>, formData: FormDa
   await audit("USERS_IMPORTED", { userId: actor.id, entity: "User", metadata: { created: accounts.length, failed: errors.length } })
   refresh()
   return ok(`${accounts.length} akun dibuat${errors.length ? `, ${errors.length} baris dilewati` : ""}.`, { accounts, errors })
+}
+
+// ---------------------------------------------------------------------------
+// Super Admin: buat akun massal dengan password acak
+// ---------------------------------------------------------------------------
+
+const generateSchema = z.object({
+  count: z.coerce.number("Isi jumlah").int("Bilangan bulat").min(1, "Minimal 1").max(MAX_GENERATE, `Maksimal ${MAX_GENERATE} akun sekali buat`),
+  prefix: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z][a-z0-9._-]{1,29}$/, "2–30 karakter, diawali huruf: huruf kecil, angka, titik, strip, garis bawah"),
+  start: z.coerce.number("Isi nomor awal").int().min(0).max(999_999),
+  namePrefix: z.string().trim().min(2, "Minimal 2 karakter").max(60),
+  domain: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^(?=.{3,100}$)[a-z0-9-]+(\.[a-z0-9-]+)+$/, "Contoh: peserta.kampus.ac.id"),
+  role: z.enum(["ADMIN", "DOSEN", "PESERTA"], "Pilih role"),
+})
+
+/** Daftar akun yang akan dibuat: awalan + nomor berurutan (minimal 3 digit). */
+function planAccounts(input: { count: number; prefix: string; start: number; namePrefix: string; domain: string }) {
+  const digits = Math.max(3, String(input.start + input.count - 1).length)
+  return Array.from({ length: input.count }, (_, i) => {
+    const n = String(input.start + i).padStart(digits, "0")
+    const username = `${input.prefix}${n}`
+    return { username, email: `${username}@${input.domain}`, name: `${input.namePrefix} ${n}` }
+  })
+}
+
+export async function generateAccounts(_prev: ActionResult<unknown>, formData: FormData): Promise<ActionResult<{ accounts: ImportedAccount[]; errors: string[] }>> {
+  const actor = await requireRole("SUPER_ADMIN")
+  const parsed = generateSchema.safeParse(formObject(formData))
+  if (!parsed.success) return zodFail(parsed.error)
+  const { role } = parsed.data
+  const groupId = String(formData.get("groupId") ?? "") || null
+  if (groupId && (role !== "PESERTA" || !(await db.group.findUnique({ where: { id: groupId }, select: { id: true } }))))
+    return fail("Kelompok hanya untuk peserta dan harus ada.", { groupId: "Tidak valid" })
+
+  const plan = planAccounts(parsed.data)
+  // Semua-atau-tidak-sama-sekali: bentrok satu pun → batal, agar urutan nomor tetap utuh.
+  const taken = await db.user.findMany({
+    where: { OR: [{ username: { in: plan.map((p) => p.username) } }, { email: { in: plan.map((p) => p.email) } }] },
+    select: { username: true, email: true },
+    take: 5,
+  })
+  if (taken.length) return fail(`Sudah ada akun dengan username/email yang sama (mis. ${taken.map((t) => t.username ?? t.email).join(", ")}). Ganti awalan atau nomor awal.`, { prefix: "Bentrok dengan akun yang ada" })
+
+  // Password sementara: cost 10 (wajib diganti saat login pertama → di-hash ulang cost 12).
+  const accounts: ImportedAccount[] = []
+  const data = []
+  for (const p of plan) {
+    const password = generateTempPassword()
+    accounts.push({ ...p, role, password })
+    data.push({ ...p, role, passwordHash: await hashPassword(password, 10), mustChangePassword: true })
+  }
+  try {
+    const created = await db.user.createManyAndReturn({ data, select: { id: true } })
+    if (groupId) await db.groupMember.createMany({ data: created.map((u) => ({ groupId, userId: u.id })) })
+  } catch (e) {
+    const d = dupe(e)
+    if (d) return fail("Sebagian username/email baru saja dipakai akun lain. Coba lagi dengan awalan berbeda.")
+    throw e
+  }
+  await audit("USERS_GENERATED", { userId: actor.id, entity: "User", metadata: { count: accounts.length, role, from: plan[0].username, to: plan.at(-1)!.username, groupId } })
+  refresh()
+  return ok(`${accounts.length} akun dibuat.`, { accounts, errors: [] })
+}
+
+// ---------------------------------------------------------------------------
+// Super Admin: hapus banyak akun sekaligus (terpilih, atau semua hasil filter)
+// ---------------------------------------------------------------------------
+
+const deleteTargetSchema = z.union([
+  z.object({ ids: z.array(z.string().min(1).max(40)).min(1).max(MAX_DELETE) }),
+  z.object({ all: z.literal(true), role: z.enum(ROLES).optional(), q: z.string().trim().max(100).optional() }),
+])
+export type DeleteTarget = z.input<typeof deleteTargetSchema>
+export type DeletePreview = { count: number; superAdmins: number; withResults: number; results: number; selfExcluded: boolean }
+
+/** Sasaran hapus selalu MENGECUALIKAN akun sendiri → minimal satu Super Admin aktif selalu tersisa. */
+function deleteWhere(actor: CurrentUser, raw: unknown) {
+  const parsed = deleteTargetSchema.safeParse(raw)
+  if (!parsed.success) return null
+  const t = parsed.data
+  const base: Prisma.UserWhereInput = "ids" in t ? { id: { in: t.ids } } : userWhere(t.role, t.q || undefined)
+  return { base, where: { AND: [base, { id: { not: actor.id } }] } }
+}
+
+export async function previewDeleteUsers(raw: DeleteTarget): Promise<ActionResult<DeletePreview>> {
+  const actor = await requireRole("SUPER_ADMIN")
+  const target = deleteWhere(actor, raw)
+  if (!target) return fail("Pilihan akun tidak valid.")
+  const { base, where } = target
+  const [count, superAdmins, withResults, results, self] = await Promise.all([
+    db.user.count({ where }),
+    db.user.count({ where: { AND: [where, { role: "SUPER_ADMIN" }] } }),
+    db.user.count({ where: { AND: [where, { attempts: { some: {} } }] } }),
+    db.attempt.count({ where: { user: where } }),
+    db.user.count({ where: { AND: [base, { id: actor.id }] } }).then((n) => n > 0),
+  ])
+  if (count === 0) return fail(self ? "Akun Anda sendiri tidak dapat dihapus." : "Tidak ada akun yang dipilih.")
+  if (count > MAX_DELETE) return fail(`Maksimal ${MAX_DELETE} akun sekali hapus — persempit pencarian.`)
+  return ok(undefined, { count, superAdmins, withResults, results, selfExcluded: self })
+}
+
+export async function deleteUsers(raw: DeleteTarget, expectedCount: number): Promise<ActionResult> {
+  const actor = await requireRole("SUPER_ADMIN")
+  const target = deleteWhere(actor, raw)
+  if (!target) return fail("Pilihan akun tidak valid.")
+  const users = await db.user.findMany({ where: target.where, select: { id: true, email: true, role: true }, take: MAX_DELETE + 1 })
+  if (users.length > MAX_DELETE) return fail(`Maksimal ${MAX_DELETE} akun sekali hapus — persempit pencarian.`)
+  // Data berubah sejak pratinjau (mis. akun baru cocok dengan filter) → jangan hapus diam-diam lebih banyak.
+  if (users.length !== expectedCount) return fail("Jumlah akun berubah sejak pratinjau. Tinjau ulang sebelum menghapus.")
+
+  const { count } = await db.user.deleteMany({ where: { id: { in: users.map((u) => u.id) } } })
+  await audit("USERS_DELETED", {
+    userId: actor.id,
+    entity: "User",
+    severity: "CRITICAL",
+    metadata: { count, roles: users.reduce<Record<string, number>>((m, u) => ({ ...m, [u.role]: (m[u.role] ?? 0) + 1 }), {}), emails: users.slice(0, 100).map((u) => u.email) },
+  })
+  refresh()
+  return ok(`${count} akun dihapus.`)
 }

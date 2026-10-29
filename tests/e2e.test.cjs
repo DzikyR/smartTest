@@ -1,5 +1,5 @@
 // Uji ujung-ke-ujung lewat HTTP (Server Action dipanggil seperti browser).
-// Prasyarat: npm run build && npm run db:seed && npm start -- -p 3123
+// Prasyarat: npm run build && npm run db:seed && MAIL_TRANSPORT=file npm start -- -p 3123 (server baru: rate limit login/reset disimpan di memori)
 // Password akun demo dibaca dari .akun-demo.txt (hasil seed). Data uji berawalan "E2E" dihapus di akhir.
 const ROOT = require("node:path").resolve(__dirname, "..")
 const fs = require("node:fs")
@@ -16,9 +16,9 @@ const pw = Object.fromEntries(
 let pass = 0, fail = 0
 const check = (n, ok, x = "") => { ok ? pass++ : fail++; console.log(`${ok ? "PASS" : "FAIL"}  ${n}${x && !ok ? "  — " + String(x).slice(0, 400) : ""}`) }
 class Jar { c = new Map(); add(r) { for (const s of r.headers.getSetCookie()) { const [kv] = s.split(";"); const i = kv.indexOf("="); this.c.set(kv.slice(0, i), kv.slice(i + 1)) } } get header() { return [...this.c].map(([k, v]) => `${k}=${v}`).join("; ") } }
-async function login(identifier) {
+async function login(identifier, password = pw[identifier]) {
   const jar = new Jar(); const r1 = await fetch(`${BASE}/api/auth/csrf`); jar.add(r1); const { csrfToken } = await r1.json()
-  jar.add(await fetch(`${BASE}/api/auth/callback/credentials`, { method: "POST", redirect: "manual", headers: { cookie: jar.header, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ csrfToken, identifier, password: pw[identifier] }) }))
+  jar.add(await fetch(`${BASE}/api/auth/callback/credentials`, { method: "POST", redirect: "manual", headers: { cookie: jar.header, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ csrfToken, identifier, password }) }))
   return jar
 }
 const id = (n, f) => { const e = Object.entries(manifest).find(([, v]) => v.exportedName === n && v.filename.includes(f)); if (!e) throw new Error(`action ${n} ${f}?`); return e[0] }
@@ -33,7 +33,7 @@ async function act(jar, page, file, name, args) {
 }
 const get = async (jar, path) => fetch(BASE + path, { headers: { cookie: jar?.header ?? "" }, redirect: "manual" })
 const html = async (jar, path) => (await get(jar, path)).text()
-const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/actions", U = "pengguna/actions", G = "kelompok/actions", F = "fitur/actions", S = "situs/actions"
+const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/actions", U = "pengguna/actions", G = "kelompok/actions", F = "fitur/actions", S = "situs/actions", R = "auth/public-actions"
 
 ;(async () => {
   const pg = new Client({ connectionString: process.env.DATABASE_URL }); await pg.connect()
@@ -45,7 +45,7 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
   const admin = await login("admin"), rina = await login("dosen.rina"), budi = await login("dosen.budi")
   const p1 = await login("2401001"), p1b = await login("2401001"), p5 = await login("2401005")
   const T = (x) => `/ujian/${x}`
-  let r, savedFeatures, sa, siteTouched = false
+  let r, savedFeatures, sa, siteTouched = false, authBefore
 
   try {
     // ---------- RBAC dasar ----------
@@ -221,7 +221,7 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
 
     // ---------- Tampilan situs: tema, teks, logo (Super Admin) ----------
     // Dilewati bila sudah ada pengaturan tampilan sungguhan, agar tidak tertimpa.
-    const siteInUse = (await one(`select (select count(*) from site_settings) + (select count(*) from content_texts) + (select count(*) from brand_assets) n`)).n > 0
+    const siteInUse = (await one(`select (select count(*) from site_settings where key <> 'auth') + (select count(*) from content_texts) + (select count(*) from brand_assets) n`)).n > 0
     if (siteInUse) console.log("SKIP  Tampilan situs: sudah ada pengaturan tampilan — uji dilewati")
     else {
       siteTouched = true
@@ -266,7 +266,101 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
       check("Kembalikan bawaan → tanpa CSS tema, logo/teks bawaan", r?.ok && !login.includes('id="site-theme"') && !login.includes("/branding/") && login.includes("<title>Masuk · SmartTest</title>"))
       siteTouched = false
     }
+
+    // ---------- Akun: daftar, lupa password, akun massal, hapus massal ----------
+    authBefore = (await one(`select value from site_settings where key='auth'`))?.value ?? null
+    await act(sa, "/admin/fitur", F, "setAuthSetting", ["registrationOpen", true])
+    const sessionOf = async (jar) => (await (await fetch(`${BASE}/api/auth/session`, { headers: { cookie: jar.header } })).json())?.user ?? null
+    const NEW = { name: "E2E Pendaftar", email: "e2e.daftar@smarttest.local", password: "Kuat12345abc" }
+    let guest = new Jar()
+    r = await act(guest, "/daftar", R, "registerAction", [PREV, form({ ...NEW, password: "pendek1", confirm: "pendek1" })])
+    check("Daftar: password lemah → ditolak per field", r?.ok === false && !!r.fieldErrors?.password, JSON.stringify(r))
+    r = await act(guest, "/daftar", R, "registerAction", [PREV, form({ ...NEW, confirm: NEW.password, website: "http://spam" })])
+    check("Daftar: honeypot terisi (bot) → ditolak", r?.ok === false && !(await one(`select 1 from users where email=$1`, [NEW.email])), JSON.stringify(r))
+    r = await act(guest, "/daftar", R, "registerAction", [PREV, form({ ...NEW, confirm: NEW.password })])
+    const regUser = await one(`select id, role, "mustChangePassword" from users where email=$1`, [NEW.email])
+    check("Daftar: akun peserta dibuat & langsung masuk", regUser?.role === "PESERTA" && !regUser.mustChangePassword && (await sessionOf(guest))?.email === NEW.email, JSON.stringify(r))
+    r = await act(new Jar(), "/daftar", R, "registerAction", [PREV, form({ ...NEW, confirm: NEW.password })])
+    check("Daftar: email sudah terdaftar → ditolak per field", r?.ok === false && !!r.fieldErrors?.email, JSON.stringify(r))
+    res = await get(guest, "/daftar")
+    check("Sudah masuk membuka /daftar → dialihkan ke dashboard", res.status >= 300 && res.status < 400, res.status)
+
+    r = await act(sa, "/admin/fitur", F, "setAuthSetting", ["registrationOpen", false])
+    const closedLogin = await html(null, "/login")
+    const rc = await act(new Jar(), "/daftar", R, "registerAction", [PREV, form({ name: "E2E Tutup", email: "e2e.tutup@smarttest.local", password: NEW.password, confirm: NEW.password })])
+    check("Pendaftaran ditutup Super Admin → form & aksi ditolak, tautan Daftar hilang", r?.ok && rc?.ok === false && /ditutup/.test(rc.error) && !closedLogin.includes('href="/daftar"') && (await html(null, "/daftar")).includes("sedang ditutup"), JSON.stringify(rc))
+    r = await act(admin, "/admin/fitur", F, "setAuthSetting", ["registrationOpen", true])
+    check("Admin (bukan Super Admin) mengubah akses publik → ditolak", r?.ok !== true && (await one(`select value from site_settings where key='auth'`))?.value?.registrationOpen === false)
+    await act(sa, "/admin/fitur", F, "setAuthSetting", ["registrationOpen", true])
+    check("Pendaftaran dibuka lagi → tautan Daftar tampil", (await html(null, "/login")).includes('href="/daftar"'))
+
+    const OUTBOX = `${ROOT}/.mail-outbox`
+    const mailTo = async (to, since) => {
+      for (let i = 0; i < 30; i++) {
+        const files = fs.existsSync(OUTBOX) ? fs.readdirSync(OUTBOX).filter((f) => Number(f.split("-")[0]) >= since).sort().reverse() : []
+        for (const f of files) { const m = JSON.parse(fs.readFileSync(`${OUTBOX}/${f}`, "utf8")); if (m.to === to) return m }
+        await new Promise((ok) => setTimeout(ok, 100))
+      }
+      return null
+    }
+    let since = Date.now()
+    const rUnknown = await act(new Jar(), "/lupa-password", R, "requestPasswordReset", [PREV, form({ email: "tidak.ada@smarttest.local" })])
+    r = await act(new Jar(), "/lupa-password", R, "requestPasswordReset", [PREV, form({ email: NEW.email.toUpperCase() })])
+    check("Lupa password: email terdaftar & tidak terdaftar → pesan identik", r?.ok && rUnknown?.ok && r.message === rUnknown.message, JSON.stringify([r, rUnknown]))
+    let mail = await mailTo(NEW.email, since)
+    const token = mail?.text.match(/reset-password\?token=([A-Za-z0-9_-]{43})/)?.[1]
+    check("Email reset terkirim berisi tautan ber-token (origin dari AUTH_URL)", !!token && mail.text.includes(`${new URL(process.env.AUTH_URL || "http://localhost:3000").origin}/reset-password?token=`) && !(await mailTo("tidak.ada@smarttest.local", since)), mail?.text)
+    check("Token disimpan sebagai hash, bukan token asli", !(await one(`select 1 from password_reset_tokens where "tokenHash"=$1`, [token])) && !!(await one(`select 1 from password_reset_tokens where "userId"=$1 and "usedAt" is null`, [regUser.id])))
+    check("Halaman reset: token salah → ditolak, token benar → form untuk email itu", (await html(null, "/reset-password?token=" + "x".repeat(43))).includes("tidak valid") && (await html(null, `/reset-password?token=${token}`)).includes(NEW.email))
+    r = await act(new Jar(), "/reset-password", R, "resetPasswordWithToken", [token, PREV, form({ password: "lemah", confirm: "lemah" })])
+    check("Reset: password lemah → ditolak, token belum terpakai", r?.ok === false && !!r.fieldErrors?.password && !!(await one(`select 1 from password_reset_tokens where "userId"=$1 and "usedAt" is null`, [regUser.id])), JSON.stringify(r))
+    const NEW_PW = "BaruSekali2026x"
+    await act(new Jar(), "/reset-password", R, "resetPasswordWithToken", [token, PREV, form({ password: NEW_PW, confirm: NEW_PW })])
+    check("Reset berhasil → password baru bisa dipakai, password lama tidak", !!(await sessionOf(await login(NEW.email, NEW_PW))) && !(await sessionOf(await login(NEW.email, NEW.password))))
+    check("Reset mencabut sesi lama di perangkat lain", !(await html(guest, "/profil")).includes(NEW.email))
+    r = await act(new Jar(), "/reset-password", R, "resetPasswordWithToken", [token, PREV, form({ password: "LagiLagi2026xyz", confirm: "LagiLagi2026xyz" })])
+    check("Token yang sudah dipakai → ditolak", r?.ok === false && /tidak valid|kedaluwarsa|dipakai/.test(r.error), JSON.stringify(r))
+    since = Date.now()
+    await act(new Jar(), "/lupa-password", R, "requestPasswordReset", [PREV, form({ email: NEW.email })])
+    const token2 = (await mailTo(NEW.email, since))?.text.match(/token=([A-Za-z0-9_-]{43})/)?.[1]
+    await pg.query(`update password_reset_tokens set "expiresAt" = now() - interval '1 day' where "userId"=$1 and "usedAt" is null`, [regUser.id])
+    r = await act(new Jar(), "/reset-password", R, "resetPasswordWithToken", [token2, PREV, form({ password: "LagiLagi2026xyz", confirm: "LagiLagi2026xyz" })])
+    check("Token kedaluwarsa (lewat 30 menit) → ditolak", !!token2 && r?.ok === false, JSON.stringify(r))
+
+    const GEN = { count: 3, prefix: "e2egen", start: 7, namePrefix: "E2E Gen", domain: "e2e.test", role: "PESERTA" }
+    r = await act(admin, "/admin/pengguna", U, "generateAccounts", [PREV, form(GEN)])
+    check("Admin (bukan Super Admin) buat akun massal → ditolak", r?.ok !== true && !(await one(`select 1 from users where username like 'e2egen%'`)), JSON.stringify(r))
+    r = await act(sa, "/admin/pengguna", U, "generateAccounts", [PREV, form({ ...GEN, count: 301 })])
+    check("Akun massal di atas batas 300 → ditolak", r?.ok === false && !!r.fieldErrors?.count, JSON.stringify(r))
+    r = await act(sa, "/admin/pengguna", U, "generateAccounts", [PREV, form(GEN)])
+    const gen = r?.data?.accounts ?? []
+    check("Super Admin buat 3 akun berurutan dengan password acak", r?.ok && gen.map((a) => a.username).join() === "e2egen007,e2egen008,e2egen009" && gen[0].email === "e2egen007@e2e.test" && new Set(gen.map((a) => a.password)).size === 3, JSON.stringify(r))
+    const genUser = await one(`select "mustChangePassword" from users where username='e2egen008'`)
+    check("Akun massal bisa login & wajib ganti password", genUser?.mustChangePassword === true && (await sessionOf(await login("e2egen008", gen[1].password)))?.email === "e2egen008@e2e.test")
+    r = await act(sa, "/admin/pengguna", U, "generateAccounts", [PREV, form({ ...GEN, start: 9 })])
+    check("Bentrok username yang sudah ada → seluruh batch dibatalkan", r?.ok === false && !!r.fieldErrors?.prefix && (await one(`select count(*)::int n from users where username like 'e2egen%'`)).n === 3, JSON.stringify(r))
+
+    const saUser = await one(`select id from users where username='superadmin'`)
+    const p1User = await one(`select id from users where username='2401001'`)
+    r = await act(admin, "/admin/pengguna", U, "previewDeleteUsers", [{ all: true, q: "e2egen" }])
+    check("Admin (bukan Super Admin) hapus massal → ditolak", r?.ok !== true, JSON.stringify(r))
+    r = await act(sa, "/admin/pengguna", U, "previewDeleteUsers", [{ ids: [saUser.id] }])
+    check("Super Admin memilih akunnya sendiri → tidak bisa dihapus", r?.ok === false && /sendiri/.test(r.error), JSON.stringify(r))
+    r = await act(sa, "/admin/pengguna", U, "previewDeleteUsers", [{ ids: [p1User.id, saUser.id] }])
+    check("Pratinjau hapus: hasil ujian yang ikut terhapus terhitung, akun sendiri dikecualikan", r?.ok && r.data.count === 1 && r.data.results > 0 && r.data.selfExcluded, JSON.stringify(r))
+    r = await act(sa, "/admin/pengguna", U, "previewDeleteUsers", [{ all: true, q: "e2egen" }])
+    check("Pratinjau 'semua hasil filter' = 3 akun", r?.ok && r.data.count === 3 && r.data.results === 0, JSON.stringify(r))
+    r = await act(sa, "/admin/pengguna", U, "deleteUsers", [{ all: true, q: "e2egen" }, 2])
+    check("Jumlah berbeda dari pratinjau → tidak ada yang dihapus", r?.ok === false && (await one(`select count(*)::int n from users where username like 'e2egen%'`)).n === 3, JSON.stringify(r))
+    r = await act(sa, "/admin/pengguna", U, "deleteUsers", [{ all: true, q: "e2egen" }, 3])
+    check("Hapus semua hasil filter → 3 akun terhapus & tercatat CRITICAL", r?.ok && (await one(`select count(*)::int n from users where username like 'e2egen%'`)).n === 0 && !!(await one(`select 1 from audit_logs where action='USERS_DELETED' and severity='CRITICAL' and metadata->>'count'='3'`)), JSON.stringify(r))
+    check("Label role DOSEN tampil sebagai 'Pengajar'", (await html(admin, "/admin/pengguna?role=dosen")).includes("Pengajar ("))
   } finally {
+    if (authBefore !== undefined) {
+      await act(sa, "/admin/fitur", F, "setAuthSetting", ["registrationOpen", authBefore?.registrationOpen ?? true])
+      if (!authBefore) await pg.query(`delete from site_settings where key='auth'`) // nilai = bawaan, cache tetap konsisten
+    }
+    await pg.query(`delete from users where username like 'e2egen%'`)
     if (siteTouched) {
       await act(sa, "/admin/situs", S, "resetTheme", [])
       for (const kind of ["LOGO_LIGHT", "LOGO_DARK", "FAVICON"]) await act(sa, "/admin/situs", S, "deleteBrandAsset", [kind])

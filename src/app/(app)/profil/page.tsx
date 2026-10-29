@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { requireRole } from "@/lib/auth/dal"
-import { ROLE_LABEL } from "@/lib/auth/roles"
+import { getTexts } from "@/lib/site/config"
+import { roleLabels } from "@/content/texts"
 import { PageHeader } from "@/components/shell/page-parts"
 import { PasswordForm } from "@/components/password-form"
 import { initials } from "@/lib/format"
@@ -9,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 export const metadata: Metadata = { title: "Profil" }
 
 export default async function ProfilePage() {
-  const user = await requireRole()
+  const [user, texts] = await Promise.all([requireRole(), getTexts()])
   return (
     <div className="flex flex-col gap-6">
       <PageHeader title="Profil & Password" />
@@ -22,7 +23,7 @@ export default async function ProfilePage() {
               <p className="text-sm text-muted-foreground">{user.email}</p>
               {user.username && <p className="font-mono text-sm text-muted-foreground">{user.username}</p>}
             </div>
-            <span className="rounded-full bg-secondary px-3 py-1 text-xs font-semibold text-secondary-foreground">{ROLE_LABEL[user.role]}</span>
+            <span className="rounded-full bg-secondary px-3 py-1 text-xs font-semibold text-secondary-foreground">{roleLabels(texts)[user.role]}</span>
           </CardContent>
         </Card>
         <Card>

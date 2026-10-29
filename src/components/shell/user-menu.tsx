@@ -4,7 +4,7 @@ import { useTransition } from "react"
 import Link from "next/link"
 import { ChevronDown, KeyRound, LogOut } from "lucide-react"
 import { logoutAction } from "@/lib/auth/actions"
-import { ROLE_LABEL, type Role } from "@/lib/auth/roles"
+
 import { initials } from "@/lib/format"
 import { Button } from "@/components/ui/button"
 import {
@@ -17,7 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-export function UserMenu({ name, email, role }: { name: string; email: string; role: Role }) {
+export function UserMenu({ name, email, roleLabel }: { name: string; email: string; roleLabel: string }) {
   const [pending, startTransition] = useTransition()
   return (
     <DropdownMenu>
@@ -27,7 +27,7 @@ export function UserMenu({ name, email, role }: { name: string; email: string; r
         </span>
         <span className="hidden text-left sm:block">
           <span className="block max-w-40 truncate text-sm leading-tight font-semibold">{name}</span>
-          <span className="block text-xs leading-tight font-normal text-muted-foreground">{ROLE_LABEL[role]}</span>
+          <span className="block text-xs leading-tight font-normal text-muted-foreground">{roleLabel}</span>
         </span>
         <ChevronDown className="hidden size-4 text-muted-foreground sm:block" aria-hidden />
       </DropdownMenuTrigger>

@@ -4,6 +4,8 @@
  * mis. "{n}". Menambah teks dinamis baru: tambahkan entri di sini, lalu ganti
  * teks hardcoded dengan `t["key"]` dari getTexts().
  */
+import type { Role } from "@/lib/auth/roles"
+
 type TextDef = { group: string; label: string; default: string; max?: number; multiline?: boolean; vars?: readonly string[] }
 
 export const TEXTS = {
@@ -34,6 +36,11 @@ export const TEXTS = {
   "dashboard.participant.idle": { group: "Dashboard", label: "Peserta: tidak ada ujian dibuka", default: "Belum ada ujian yang dibuka saat ini.", max: 140 },
   "dashboard.participant.cta": { group: "Dashboard", label: "Peserta: tombol kerjakan", default: "Kerjakan sekarang", max: 30 },
 
+  "role.SUPER_ADMIN": { group: "Peran Pengguna", label: "Super Admin", default: "Super Admin", max: 30 },
+  "role.ADMIN": { group: "Peran Pengguna", label: "Admin", default: "Admin", max: 30 },
+  "role.DOSEN": { group: "Peran Pengguna", label: "Dosen / praktisi / penyelenggara", default: "Pengajar", max: 30 },
+  "role.PESERTA": { group: "Peran Pengguna", label: "Peserta / mahasiswa", default: "Peserta", max: 30 },
+
   "nav.dashboard": { group: "Menu Navigasi", label: "Dashboard", default: "Dashboard", max: 30 },
   "nav.section.ujian": { group: "Menu Navigasi", label: "Judul bagian: Ujian", default: "Ujian", max: 30 },
   "nav.ujian": { group: "Menu Navigasi", label: "Peserta: Ujian Saya", default: "Ujian Saya", max: 30 },
@@ -60,6 +67,9 @@ export type Texts = Record<TextKey, string>
 
 export const TEXT_KEYS = Object.keys(TEXTS) as TextKey[]
 export const DEFAULT_TEXTS = Object.fromEntries(TEXT_KEYS.map((k) => [k, TEXTS[k].default])) as Texts
+
+/** Label role yang tampil di UI (nilai di database tetap SUPER_ADMIN/ADMIN/DOSEN/PESERTA). */
+export const roleLabels = (t: Texts): Record<Role, string> => ({ SUPER_ADMIN: t["role.SUPER_ADMIN"], ADMIN: t["role.ADMIN"], DOSEN: t["role.DOSEN"], PESERTA: t["role.PESERTA"] })
 
 /** Label menu (dikirim ke klien — hanya bagian ini, bukan seluruh katalog). */
 export const NAV_TEXT_KEYS = TEXT_KEYS.filter((k) => k.startsWith("nav."))

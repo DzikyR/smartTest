@@ -1,9 +1,12 @@
 import type { Metadata } from "next"
-import { FileUp, Pencil, Power, UserPlus } from "lucide-react"
-import type { Prisma, Role } from "@/generated/prisma/client"
+import { FileUp, Pencil, Power, UserPlus, UsersRound } from "lucide-react"
+import type { Role } from "@/generated/prisma/client"
 import { db } from "@/lib/db"
 import { requireRole } from "@/lib/auth/dal"
-import { ADMINS, ROLE_LABEL } from "@/lib/auth/roles"
+import { ADMINS } from "@/lib/auth/roles"
+import { MAX_GENERATE, USER_ROLE_TABS, userWhere } from "@/lib/data/users"
+import { getTexts } from "@/lib/site/config"
+import { roleLabels } from "@/content/texts"
 import { formatDateTime, initials } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { EmptyState, PageHeader, Pagination, parsePage, SearchForm, str, UrlTabs } from "@/components/shell/page-parts"
@@ -16,19 +19,14 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { assignableRoles, createUser, importUsers, resetPassword, setUserActive, updateUser } from "./actions"
-import { ImportUsersForm, ResetPasswordButton } from "./client"
+import { assignableRoles, createUser, generateAccounts, importUsers, resetPassword, setUserActive, updateUser } from "./actions"
+import { GenerateAccountsForm, ImportUsersForm, ResetPasswordButton } from "./client"
+import { UsersBulkBar } from "./bulk-users"
 
 export const metadata: Metadata = { title: "Pengguna" }
 
 const PAGE_SIZE = 20
-const ROLE_TABS: { key: string; label: string; role?: Role }[] = [
-  { key: "semua", label: "Semua" },
-  { key: "peserta", label: "Peserta", role: "PESERTA" },
-  { key: "dosen", label: "Dosen", role: "DOSEN" },
-  { key: "admin", label: "Admin", role: "ADMIN" },
-  { key: "super", label: "Super Admin", role: "SUPER_ADMIN" },
-]
+const SELECT_FORM = "users-select"
 const ROLE_TINT: Record<Role, string> = {
   SUPER_ADMIN: "bg-tint-rose text-tint-rose-fg",
   ADMIN: "bg-tint-orange text-tint-orange-fg",
@@ -38,16 +36,16 @@ const ROLE_TINT: Record<Role, string> = {
 
 export default async function UsersPage({ searchParams }: PageProps<"/admin/pengguna">) {
   const actor = await requireRole(...ADMINS)
-  const sp = await searchParams
-  const tab = ROLE_TABS.find((t) => t.key === str(sp.role)) ?? ROLE_TABS[0]
+  const [sp, texts] = await Promise.all([searchParams, getTexts()])
+  const ROLE_LABEL = roleLabels(texts)
+  const isSuper = actor.role === "SUPER_ADMIN"
+  const tab = USER_ROLE_TABS.find((t) => t.key === str(sp.role)) ?? USER_ROLE_TABS[0]
+  const tabLabel = (t: (typeof USER_ROLE_TABS)[number]) => (t.role ? ROLE_LABEL[t.role] : "Semua")
   const q = str(sp.q)
   const page = parsePage(sp.page)
   const allowed = await assignableRoles(actor)
 
-  const where: Prisma.UserWhereInput = {
-    ...(tab.role ? { role: tab.role } : {}),
-    ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" } }, { email: { contains: q, mode: "insensitive" } }, { username: { contains: q, mode: "insensitive" } }] } : {}),
-  }
+  const where = userWhere(tab.role, q)
   const [total, users, groups, counts] = await Promise.all([
     db.user.count({ where }),
     db.user.findMany({
@@ -104,9 +102,26 @@ export default async function UsersPage({ searchParams }: PageProps<"/admin/peng
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Pengguna"
-        description="Akun Super Admin, Admin, Dosen, dan Peserta. Akun baru mendapat password sementara yang wajib diganti saat login pertama."
+        description={`Akun ${ROLE_LABEL.SUPER_ADMIN}, ${ROLE_LABEL.ADMIN}, ${ROLE_LABEL.DOSEN}, dan ${ROLE_LABEL.PESERTA}. Akun baru mendapat password sementara yang wajib diganti saat login pertama.`}
         actions={
           <>
+            {isSuper && (
+              <Dialog>
+                <DialogTrigger
+                  render={
+                    <Button variant="outline" className="rounded-xl">
+                      <UsersRound aria-hidden /> Buat akun massal
+                    </Button>
+                  }
+                />
+                <DialogContent className="sm:max-w-2xl">
+                  <DialogHeader>
+                    <DialogTitle>Buat Akun Massal</DialogTitle>
+                  </DialogHeader>
+                  <GenerateAccountsForm action={generateAccounts} roleLabels={ROLE_LABEL} roles={["PESERTA", "DOSEN", "ADMIN"]} groups={groups} max={MAX_GENERATE} />
+                </DialogContent>
+              </Dialog>
+            )}
             <Dialog>
               <DialogTrigger
                 render={
@@ -119,7 +134,7 @@ export default async function UsersPage({ searchParams }: PageProps<"/admin/peng
                 <DialogHeader>
                   <DialogTitle>Impor Pengguna dari Excel</DialogTitle>
                 </DialogHeader>
-                <ImportUsersForm action={importUsers} />
+                <ImportUsersForm action={importUsers} roleLabels={ROLE_LABEL} />
               </DialogContent>
             </Dialog>
             <FormDialog
@@ -141,13 +156,19 @@ export default async function UsersPage({ searchParams }: PageProps<"/admin/peng
         <UrlTabs
           label="Filter role"
           active={tab.key}
-          tabs={ROLE_TABS.map((t) => ({ key: t.key, href: `/admin/pengguna?role=${t.key}${q ? `&q=${encodeURIComponent(q)}` : ""}`, label: `${t.label} (${countOf(t.role)})` }))}
+          tabs={USER_ROLE_TABS.map((t) => ({ key: t.key, href: `/admin/pengguna?role=${t.key}${q ? `&q=${encodeURIComponent(q)}` : ""}`, label: `${tabLabel(t)} (${countOf(t.role)})` }))}
         />
         <SearchForm basePath="/admin/pengguna" params={params} placeholder="Cari nama, email, NIM…" className="lg:w-96">
           <input type="hidden" name="role" value={tab.key} />
         </SearchForm>
       </div>
 
+      {isSuper && users.length > 0 && (
+        <>
+          <form id={SELECT_FORM} />
+          <UsersBulkBar formId={SELECT_FORM} total={total} filter={{ role: tab.role, q: q || undefined }} />
+        </>
+      )}
       {users.length === 0 ? (
         <EmptyState title="Tidak ada pengguna" />
       ) : (
@@ -156,6 +177,11 @@ export default async function UsersPage({ searchParams }: PageProps<"/admin/peng
             <table className="w-full min-w-3xl text-sm">
               <thead className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
                 <tr>
+                  {isSuper && (
+                    <th className="w-10 py-3 pl-5">
+                      <span className="sr-only">Pilih</span>
+                    </th>
+                  )}
                   <th className="px-5 py-3 font-medium">Pengguna</th>
                   <th className="px-3 py-3 font-medium">Username/NIM</th>
                   <th className="px-3 py-3 font-medium">Role</th>
@@ -169,6 +195,20 @@ export default async function UsersPage({ searchParams }: PageProps<"/admin/peng
                   const manageable = allowed.includes(u.role)
                   return (
                     <tr key={u.id} className={cn(!u.isActive && "opacity-55")}>
+                      {isSuper && (
+                        <td className="py-3 pl-5">
+                          <input
+                            type="checkbox"
+                            name="ids"
+                            value={u.id}
+                            form={SELECT_FORM}
+                            disabled={u.id === actor.id}
+                            title={u.id === actor.id ? "Akun Anda sendiri" : undefined}
+                            aria-label={`Pilih ${u.name}`}
+                            className="size-4 accent-primary"
+                          />
+                        </td>
+                      )}
                       <td className="px-5 py-3">
                         <div className="flex items-center gap-3">
                           <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold", ROLE_TINT[u.role])}>{initials(u.name)}</span>

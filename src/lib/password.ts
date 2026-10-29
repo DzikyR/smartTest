@@ -12,8 +12,12 @@ export function generateTempPassword(length = 12) {
   return out
 }
 
-export function hashPassword(password: string) {
-  return bcrypt.hash(password, 12)
+/**
+ * Cost 12 untuk password pilihan pengguna. Password sementara (wajib diganti saat
+ * login pertama) boleh cost 10 agar pembuatan akun massal tetap cepat (±60 ms/akun).
+ */
+export function hashPassword(password: string, cost: 10 | 12 = 12) {
+  return bcrypt.hash(password, cost)
 }
 
 const COMMON = ["password", "123456", "qwerty", "admin", "letmein", "welcome", "rahasia", "bismillah", "indonesia"]

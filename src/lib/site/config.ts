@@ -8,7 +8,7 @@ import { BRAND_ASSETS, type Brand } from "./branding"
 import { EMPTY_THEME, parseTheme, type SiteTheme } from "./theme"
 
 /** Tag cache tampilan situs — di-invalidate dengan updateTag() setiap kali Super Admin menyimpan. */
-export const SITE_TAGS = { theme: "site:theme", branding: "site:branding", texts: "site:texts" } as const
+export const SITE_TAGS = { theme: "site:theme", branding: "site:branding", texts: "site:texts", auth: "site:auth" } as const
 
 /**
  * Bila DB bermasalah saat runtime, tampilkan bawaan (error tidak ikut di-cache).
@@ -55,6 +55,27 @@ async function loadTexts(): Promise<Texts> {
   const rows = await db.contentText.findMany({ select: { key: true, value: true } })
   return mergeTexts(Object.fromEntries(rows.map((r) => [r.key, r.value])))
 }
+
+/** Akses publik yang diatur Super Admin. Bawaan: pendaftaran & login Google dibuka. */
+export type AuthSettings = { registrationOpen: boolean; googleLogin: boolean }
+const DEFAULT_AUTH: AuthSettings = { registrationOpen: true, googleLogin: true }
+
+async function loadAuthSettings(): Promise<AuthSettings> {
+  "use cache"
+  cacheLife("hours")
+  cacheTag(SITE_TAGS.auth)
+  const row = await db.siteSetting.findUnique({ where: { key: "auth" }, select: { value: true } })
+  const v = (row?.value ?? {}) as Partial<AuthSettings>
+  return { registrationOpen: v.registrationOpen ?? DEFAULT_AUTH.registrationOpen, googleLogin: v.googleLogin ?? DEFAULT_AUTH.googleLogin }
+}
+
+/** Kredensial Google OAuth tersedia di environment. */
+export const googleConfigured = () => !!(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET)
+
+export const getAuthSettings = cache(async () => {
+  const s = await withFallback(loadAuthSettings, DEFAULT_AUTH, "pengaturan akses")
+  return { ...s, googleLogin: s.googleLogin && googleConfigured() }
+})
 
 export const getTheme = cache(() => withFallback(loadTheme, EMPTY_THEME, "tema"))
 export const getBranding = cache(() => withFallback(loadBranding, { logoLight: null, logoDark: null, favicon: null }, "branding"))

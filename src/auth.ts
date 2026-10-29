@@ -1,10 +1,15 @@
 import NextAuth, { CredentialsSignin } from "next-auth"
 import Credentials from "next-auth/providers/credentials"
+import Google from "next-auth/providers/google"
 import bcrypt from "bcryptjs"
 import { z } from "zod"
 import { authConfig } from "@/auth.config"
 import { db } from "@/lib/db"
 import { clientIp, rateLimit } from "@/lib/rate-limit"
+import { linkGoogleAccount, type GoogleProfile } from "@/lib/auth/account"
+
+/** Google aktif bila AUTH_GOOGLE_ID & AUTH_GOOGLE_SECRET diisi (redirect URI: {AUTH_URL}/api/auth/callback/google). */
+const googleEnabled = !!(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET)
 
 const MAX_FAILED_ATTEMPTS = 5
 const LOCK_DURATION_MS = 15 * 60 * 1000
@@ -27,7 +32,25 @@ class RateLimitedError extends CredentialsSignin {
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
+  callbacks: {
+    ...authConfig.callbacks,
+    /** Google: tautkan ke akun yang ada (email terverifikasi) atau buat akun peserta baru. */
+    async signIn({ account, profile }) {
+      if (account?.provider !== "google") return true
+      return linkGoogleAccount(profile as GoogleProfile)
+    },
+    /** Token memakai id & role dari database — bukan id profil Google. */
+    async jwt(params) {
+      if (params.account?.provider === "google") {
+        const user = await db.user.findUnique({ where: { googleId: params.account.providerAccountId }, select: { id: true, name: true, email: true, role: true } })
+        if (!user) throw new Error("Akun Google belum tertaut")
+        params.user = user
+      }
+      return authConfig.callbacks.jwt(params)
+    },
+  },
   providers: [
+    ...(googleEnabled ? [Google({ profile: (p) => ({ id: p.sub, name: p.name, email: p.email, role: "PESERTA" as const }) })] : []),
     Credentials({
       credentials: { identifier: {}, password: {} },
       async authorize(raw, request) {

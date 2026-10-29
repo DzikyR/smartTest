@@ -5,7 +5,7 @@ export type { Role }
 export const ROLE_LABEL: Record<Role, string> = {
   SUPER_ADMIN: "Super Admin",
   ADMIN: "Admin",
-  DOSEN: "Dosen",
+  DOSEN: "Pengajar",
   PESERTA: "Peserta",
 }
 

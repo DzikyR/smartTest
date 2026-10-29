@@ -30,7 +30,8 @@ export const authConfig = {
       const { pathname } = request.nextUrl
       const role = auth?.user?.role
 
-      if (pathname === "/login") {
+      // Halaman khusus tamu: pengguna yang sudah login langsung ke dashboard.
+      if (pathname === "/login" || pathname === "/daftar" || pathname === "/lupa-password") {
         if (role) return NextResponse.redirect(new URL(HOME, request.nextUrl))
         return true
       }

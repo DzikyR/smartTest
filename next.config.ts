@@ -2,6 +2,8 @@ import type { NextConfig } from "next"
 
 const isDev = process.env.NODE_ENV === "development"
 const isHttps = (process.env.AUTH_URL ?? "").startsWith("https://")
+// Login Google mengirim form ke accounts.google.com (lewat redirect) — harus diizinkan form-action.
+const googleAuth = process.env.AUTH_GOOGLE_ID ? " https://accounts.google.com" : ""
 
 /**
  * Content-Security-Policy tanpa nonce (nonce tidak kompatibel dengan Partial
@@ -17,7 +19,7 @@ const csp = [
   `connect-src 'self'`,
   `object-src 'none'`,
   `base-uri 'self'`,
-  `form-action 'self'`,
+  `form-action 'self'${googleAuth}`,
   `frame-ancestors 'none'`,
   ...(isHttps ? ["upgrade-insecure-requests"] : []),
 ].join("; ")

@@ -2,7 +2,7 @@ import { Suspense } from "react"
 import { getCurrentUser, requireRole } from "@/lib/auth/dal"
 import { enabledFeatures } from "@/lib/features/access"
 import { getBrand, getTexts } from "@/lib/site/config"
-import { NAV_TEXT_KEYS, type Texts } from "@/content/texts"
+import { NAV_TEXT_KEYS, roleLabels, type Texts } from "@/content/texts"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Logo } from "./logo"
 import { MobileNav } from "./mobile-nav"
@@ -75,7 +75,7 @@ const navLabels = (t: Texts) => Object.fromEntries(NAV_TEXT_KEYS.map((k) => [k, 
 async function HeaderUser() {
   const user = await getCurrentUser()
   if (!user) return null
-  return <UserMenu name={user.name} email={user.email} role={user.role} />
+  return <UserMenu name={user.name} email={user.email} roleLabel={roleLabels(await getTexts())[user.role]} />
 }
 
 /** Otorisasi server-side: konten hanya untuk pengguna login (role per halaman dicek di halaman). */

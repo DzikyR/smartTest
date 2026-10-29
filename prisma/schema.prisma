@@ -80,6 +80,8 @@ model User {
   /// Sesi (JWT) yang dibuat sebelum waktu ini tidak berlaku
   passwordChangedAt  DateTime?
   lastLoginAt        DateTime?
+  /// "sub" akun Google yang tertaut (login dengan Google)
+  googleId           String?   @unique
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -90,6 +92,7 @@ model User {
   attempts       Attempt[]         @relation("AttemptUser")
   attemptsGraded Attempt[]         @relation("AttemptGrader")
   auditLogs      AuditLog[]
+  resetTokens    PasswordResetToken[]
 
   @@index([role])
   @@map("users")
@@ -392,4 +395,24 @@ model BrandAsset {
   updatedAt DateTime       @updatedAt
 
   @@map("brand_assets")
+}
+
+// -----------------------------------------------------------------------------
+//  RESET PASSWORD — token acak sekali pakai (hanya hash yang disimpan)
+// -----------------------------------------------------------------------------
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  /// SHA-256 dari token di tautan email; token aslinya tidak pernah disimpan
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  ipAddress String?
+  createdAt DateTime  @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }

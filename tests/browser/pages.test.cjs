@@ -108,7 +108,7 @@ async function cleanTask(pg) {
     const cta = await rina.page.evaluate(() => [...document.querySelectorAll("a")].filter((a) => a.textContent.includes("Buat ujian")).map((a) => [getComputedStyle(a).color, getComputedStyle(a).backgroundColor]))
     check("Tombol putih di banner: teks tidak sewarna latar (buttonVariants + className)", cta.length > 0 && cta.every(([fg, bg]) => fg !== bg), JSON.stringify(cta))
     await clickText(rina.page, "button", "Tampilkan di layar")
-    check("Kode tampil besar untuk proyektor", await waitText(rina.page, "Gabung lewat menu Kelas"))
+    check("Kode & QR tampil besar untuk proyektor", (await waitText(rina.page, "Pindai QR")) && !!(await rina.page.$('[role="dialog"] img[src^="data:image/svg+xml"]')))
     await shot(rina.page, "23-kode-layar-penuh", false)
 
     // ---------- Peserta (IF-1B, mode gelap): gabung lewat dialog ----------

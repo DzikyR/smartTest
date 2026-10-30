@@ -212,11 +212,14 @@ model Group {
   joinLocked       Boolean    @default(false)
   /// Wajib NIM (username) sebelum bergabung lewat kode
   requireStudentId Boolean    @default(true)
+  /// Hanya NIM yang ada di daftar (roster) yang boleh bergabung lewat kode
+  rosterOnly       Boolean    @default(false)
   archivedAt       DateTime?
 
   members GroupMember[]
   exams   ExamGroup[]
   codes   AccessCode[]
+  roster  ClassRoster[]
 
   @@index([ownerId])
   @@map("groups")
@@ -313,22 +316,24 @@ model Exam {
   updatedAt         DateTime  @updatedAt
 
   subjectId   String
-  subject     Subject       @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  subject     Subject          @relation(fields: [subjectId], references: [id], onDelete: Restrict)
   createdById String?
-  createdBy   User?         @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?            @relation(fields: [createdById], references: [id], onDelete: SetNull)
   // --- Tugas ala Classroom (Fase 3) — semua berdefault agar ujian lama tetap sah ---
-  workType    WorkType      @default(QUIZ)
+  workType    WorkType         @default(QUIZ)
   /// Kategori dinamis (Kuis, UTS, UAS, Tes, …); `kind` tetap diisi sesuai perilaku dasar kategori
   categoryId  String?
-  category    ExamCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  category    ExamCategory?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   /// Tenggat: kumpul setelah ini tetap diterima (s.d. endAt) tetapi ditandai terlambat
   dueAt       DateTime?
   /// false = tanpa batas durasi (durationMinutes diabaikan; batas hanya endAt)
-  timed       Boolean       @default(true)
+  timed       Boolean          @default(true)
   /// Nilai maksimum Tugas (tanpa soal) — Fase 3b
   maxPoints   Float?
   /// Sesi ujian publik (Fase 4) — jalur akses selain openToAll & kelompok/kelas
   sessions    ExamSession[]
+  /// Lampiran referensi dari pengajar (mis. panduan Tugas) — Fase 5
+  attachments ExamAttachment[]
 
   questions ExamQuestion[]
   groups    ExamGroup[]
@@ -610,6 +615,37 @@ model SubmissionFile {
 
   @@index([attemptId])
   @@map("submission_files")
+}
+
+/// Daftar NIM resmi kelas (diunggah pengajar) — untuk mencocokkan & membatasi siapa yang bergabung.
+model ClassRoster {
+  groupId   String
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  /// NIM ternormalisasi huruf kecil (sama dengan User.username)
+  studentId String
+  name      String?
+  createdAt DateTime @default(now())
+
+  @@id([groupId, studentId])
+  @@map("class_rosters")
+}
+
+/// Lampiran referensi dari pengajar pada ujian/Tugas. Isi di UPLOAD_DIR (seperti berkas jawaban).
+model ExamAttachment {
+  id         String   @id @default(cuid())
+  fileName   String
+  mimeType   String
+  size       Int
+  storageKey String   @unique
+  sha256     String
+  createdAt  DateTime @default(now())
+
+  examId      String
+  exam        Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
+  createdById String?
+
+  @@index([examId])
+  @@map("exam_attachments")
 }
 
 model PasswordResetToken {

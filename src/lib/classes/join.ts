@@ -7,7 +7,7 @@ import { FEATURE_DISABLED } from "@/lib/features/registry"
 import { rateLimit } from "@/lib/rate-limit"
 import { normalizeCode } from "./code-format"
 
-export type JoinError = "INVALID" | "DISABLED" | "EXPIRED" | "LOCKED" | "FULL" | "REMOVED" | "ROLE" | "FEATURE" | "RATE_LIMITED" | "PROFILE_INCOMPLETE"
+export type JoinError = "INVALID" | "DISABLED" | "EXPIRED" | "LOCKED" | "FULL" | "REMOVED" | "ROLE" | "FEATURE" | "RATE_LIMITED" | "PROFILE_INCOMPLETE" | "NOT_ON_ROSTER"
 export type ProfileField = "studentId"
 
 export type JoinResult =
@@ -43,7 +43,7 @@ export async function joinWithCode(user: CurrentUser, rawCode: unknown, ip: stri
   const ac = await db.accessCode.findUnique({
     where: { code },
     include: {
-      group: { select: { id: true, name: true, archivedAt: true, joinLocked: true, joinPolicy: true, requireStudentId: true } },
+      group: { select: { id: true, name: true, archivedAt: true, joinLocked: true, joinPolicy: true, requireStudentId: true, rosterOnly: true } },
       session: { include: { exam: { select: { id: true, title: true, publishedAt: true, endAt: true } } } },
     },
   })
@@ -69,7 +69,10 @@ export async function joinWithCode(user: CurrentUser, rawCode: unknown, ip: stri
   if (group.joinLocked) return no("LOCKED", "Kelas dikunci pengajar — tidak menerima anggota baru.")
 
   // 7. Kelengkapan profil: NIM wajib agar daftar anggota & rekap nilai bisa dicocokkan.
-  if (group.requireStudentId && !user.username) return no("PROFILE_INCOMPLETE", "Kelas ini mewajibkan NIM. Lengkapi NIM Anda untuk melanjutkan.", ["studentId"])
+  if ((group.requireStudentId || group.rosterOnly) && !user.username) return no("PROFILE_INCOMPLETE", "Kelas ini mewajibkan NIM. Lengkapi NIM Anda untuk melanjutkan.", ["studentId"])
+  // Daftar NIM resmi: hanya NIM yang diunggah pengajar yang boleh masuk (mencegah salah kamar / kode tersebar).
+  if (group.rosterOnly && !(await db.classRoster.findUnique({ where: { groupId_studentId: { groupId: group.id, studentId: user.username!.toLowerCase() } }, select: { studentId: true } })))
+    return no("NOT_ON_ROSTER", `NIM Anda (${user.username}) tidak ada di daftar kelas ini. Hubungi pengajar bila seharusnya terdaftar.`)
 
   // 8. Transaksi: kuota kode dipotong ATOMIK (kondisi dievaluasi saat UPDATE), lalu daftar.
   const status = group.joinPolicy === "APPROVAL" ? "PENDING" : "ACTIVE"

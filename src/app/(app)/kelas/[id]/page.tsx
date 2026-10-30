@@ -34,6 +34,8 @@ import {
 } from "../actions"
 import { ClassFields } from "../fields"
 import { CodeDisplay } from "./code-card"
+import { ClassPeopleCards } from "./people-cards"
+import { qrDataUrl } from "@/lib/classes/qr"
 
 export const metadata: Metadata = { title: "Kelas" }
 
@@ -199,7 +201,12 @@ async function TeacherView({ user, cls, tab }: { user: CurrentUser; cls: Managed
       />
       {tab === "tugas" && <TeacherWork groupId={cls.id} />}
       {tab === "anggota" && <TeacherMembers groupId={cls.id} />}
-      {tab === "pengaturan" && <TeacherSettings user={user} cls={cls} />}
+      {tab === "pengaturan" && (
+        <>
+          <TeacherSettings user={user} cls={cls} />
+          <ClassPeopleCards user={user} cls={cls} />
+        </>
+      )}
     </div>
   )
 }
@@ -389,7 +396,7 @@ async function TeacherSettings({ user, cls }: { user: CurrentUser; cls: ManagedC
         <CardContent className="flex flex-col gap-4">
           {code ? (
             <>
-              <CodeDisplay code={code.code} joinUrl={joinUrl} className={cls.name} />
+              <CodeDisplay code={code.code} joinUrl={joinUrl} className={cls.name} qr={await qrDataUrl(joinUrl)} />
               <p className="text-xs text-muted-foreground">
                 Dipakai {code.usesCount}
                 {code.maxUses ? ` dari ${code.maxUses}` : ""} kali · {code.expiresAt ? `berlaku s.d. ${formatDateTime(code.expiresAt)}` : "tanpa batas waktu"}

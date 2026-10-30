@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { CodeDisplay } from "@/app/(app)/kelas/[id]/code-card"
+import { qrDataUrl } from "@/lib/classes/qr"
 import { createSession, removeSessionParticipant, restoreSessionParticipant, rotateSessionCode, setSessionActive, setSessionCodeEnabled, updateSession } from "../session-actions"
 
 type SessionDefaults = { name: string; opensAt: Date | null; closesAt: Date | null; capacity: number | null; requireStudentId: boolean }
@@ -62,6 +63,8 @@ export async function SessionsTab({ examId, canManage }: { examId: string; canMa
     },
   })
   const origin = appOrigin()
+  const joinUrl = (code: string) => `${origin}/gabung?kode=${code}`
+  const qrs = new Map(await Promise.all(sessions.flatMap((s) => (s.codes[0] ? [Promise.all([s.id, qrDataUrl(joinUrl(s.codes[0].code))] as const)] : []))))
 
   return (
     <div className="flex flex-col gap-4">
@@ -107,7 +110,7 @@ export async function SessionsTab({ examId, canManage }: { examId: string; canMa
             <CardContent className="flex flex-col gap-5">
               {code ? (
                 <div className="flex flex-col gap-3">
-                  <CodeDisplay code={code.code} joinUrl={`${origin}/gabung?kode=${code.code}`} className={s.name} />
+                  <CodeDisplay code={code.code} joinUrl={joinUrl(code.code)} className={s.name} qr={qrs.get(s.id)!} />
                   {code.status === "DISABLED" && <Badge variant="outline">Kode dinonaktifkan</Badge>}
                 </div>
               ) : (

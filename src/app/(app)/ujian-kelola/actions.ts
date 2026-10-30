@@ -10,6 +10,7 @@ import { requireRole, type CurrentUser } from "@/lib/auth/dal"
 import { STAFF } from "@/lib/auth/roles"
 import { canManageSubject, getManagedExam, managedSubjects } from "@/lib/data/access"
 import { targetableClasses } from "@/lib/classes/access"
+import { removeStoredFiles } from "@/lib/submissions/storage"
 import { appendExamQuestions, editableExam } from "@/lib/data/exam-questions"
 import { fail, formObject, ok, zodFail, type ActionResult } from "@/lib/action-result"
 import { checkbox, optionalLocalDateTime, optionalNumber, optionalText } from "@/lib/validation"
@@ -232,7 +233,9 @@ export async function deleteExam(examId: string): Promise<ActionResult<{ href: s
   const exam = await getManagedExam(user, examId)
   if (!exam) return fail(DENIED)
   if (exam._count.attempts > 0) return fail("Ujian sudah dikerjakan peserta dan tidak dapat dihapus. Tarik menjadi draf bila perlu.")
+  const attachments = await db.examAttachment.findMany({ where: { examId }, select: { storageKey: true } })
   await db.exam.delete({ where: { id: examId } })
+  await removeStoredFiles(attachments.map((a) => a.storageKey)) // baris lampiran ikut terhapus (cascade); berkas di disk dibersihkan
   await audit("EXAM_DELETED", { userId: user.id, entity: "Exam", entityId: examId, severity: "WARNING", metadata: { title: exam.title } })
   return ok(`"${exam.title}" dihapus.`, { href: "/ujian-kelola" })
 }

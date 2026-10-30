@@ -69,6 +69,7 @@ import {
 } from "../actions"
 import { BankPickerFields, RemoveQuestionsButton } from "./client"
 import { SessionsTab } from "./sessions-tab"
+import { AttachmentList } from "@/components/exam/attachment-list"
 
 export const metadata: Metadata = { title: "Detail Ujian" }
 
@@ -336,11 +337,19 @@ async function QuestionsTab({
     select: { id: true, type: true, prompt: true, points: true, topic: true, difficulty: true },
   })
   if (exam.workType === "ASSIGNMENT") {
+    const attachments = await db.examAttachment.findMany({ where: { examId: exam.id }, orderBy: { createdAt: "asc" }, select: { id: true, fileName: true, size: true } })
     return (
-      <EmptyState
-        title="Tugas tanpa soal"
-        description={`Mahasiswa menulis jawaban dan/atau mengunggah berkas, lalu menyerahkan. Nilai diberikan manual (0–${exam.maxPoints ?? 100} poin) dari tab Peserta.`}
-      />
+      <Card>
+        <CardHeader>
+          <CardTitle>Tugas tanpa soal</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-5">
+          <p className="text-sm text-muted-foreground">
+            Mahasiswa menulis jawaban dan/atau mengunggah berkas, lalu menyerahkan. Nilai diberikan manual (0–{exam.maxPoints ?? 100} poin) dari tab Peserta.
+          </p>
+          <AttachmentList examId={exam.id} items={attachments.map((a) => ({ id: a.id, name: a.fileName, size: a.size }))} />
+        </CardContent>
+      </Card>
     )
   }
   const used = new Set(questions.map((q) => q.sourceId).filter(Boolean))

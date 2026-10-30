@@ -109,5 +109,16 @@ export function contrastWarnings(mode: ThemeMode, colors: ThemeColors) {
     ["Accent", "--accent", "--accent-foreground"],
     ["Background", "--background", "--foreground"],
   ]
-  return pairs.filter(([, bg, fg]) => vars[bg] && contrast(vars[bg], vars[fg]) < 4.5).map(([label, bg, fg]) => ({ label, ratio: Math.round(contrast(vars[bg], vars[fg]) * 10) / 10 }))
+  const round = (n: number) => Math.round(n * 10) / 10
+  const warnings = pairs.filter(([, bg, fg]) => vars[bg] && contrast(vars[bg], vars[fg]) < 4.5).map(([label, bg, fg]) => ({ label, ratio: round(contrast(vars[bg], vars[fg])) }))
+  // Primary juga dipakai SEBAGAI TEKS (tautan, tab aktif, angka kode kelas) di atas kartu.
+  // WCAG 1.4.11/1.4.3 teks besar & komponen UI: minimal 3:1.
+  if (colors.primary) {
+    const ratio = contrast(colors.primary, CARD[mode])
+    if (ratio < 3) warnings.push({ label: "Primary sebagai teks/tautan di atas kartu", ratio: round(ratio) })
+  }
+  return warnings
 }
+
+/** Warna kartu bawaan per mode (permukaan tempat teks berwarna primary paling sering tampil). */
+const CARD: Record<ThemeMode, string> = { light: "#ffffff", dark: "#201e2e" }

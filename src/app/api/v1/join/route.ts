@@ -12,6 +12,7 @@ const STATUS: Record<JoinError, number> = {
   FEATURE: 403,
   FULL: 409,
   PROFILE_INCOMPLETE: 422,
+  NOT_ON_ROSTER: 403,
   RATE_LIMITED: 429,
 }
 

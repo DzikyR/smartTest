@@ -5,7 +5,8 @@ import { refresh } from "next/cache"
 import { z } from "zod"
 import { db } from "@/lib/db"
 import { audit } from "@/lib/audit"
-import { requireRole, type CurrentUser } from "@/lib/auth/dal"
+import { isAdmin, requireRole, type CurrentUser } from "@/lib/auth/dal"
+import { MAX_ROSTER, parseRoster } from "@/lib/classes/roster"
 import { STAFF } from "@/lib/auth/roles"
 import { canManageSubject } from "@/lib/data/access"
 import { isFeatureEnabled } from "@/lib/features/access"
@@ -225,4 +226,70 @@ export async function removeMember(id: string, userId: string, block: boolean) {
 
 export async function restoreMember(id: string, userId: string) {
   return updateMember(id, userId, ["REMOVED"], { status: "ACTIVE" }, "CLASS_MEMBER_RESTORED", "Anggota dikembalikan ke kelas.")
+}
+
+// ---------------------------------------------------------------------------
+// Pemilik kelas: co-teacher (pengajar pendamping)
+// ---------------------------------------------------------------------------
+
+/** Hanya pemilik kelas atau Admin yang mengatur co-teacher (co-teacher tidak bisa mengundang orang lain). */
+async function ownedClass(actor: CurrentUser | null, id: string) {
+  const cls = await managed(actor, id)
+  return actor && cls && (cls.ownerId === actor.id || isAdmin(actor)) ? cls : null
+}
+
+export async function addCoTeacher(id: string, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
+  const actor = await requireClassTeacher()
+  const cls = await ownedClass(actor, id)
+  if (!actor || !cls) return fail("Hanya pemilik kelas atau Admin yang dapat menambah pengajar.")
+  const identifier = String(formData.get("identifier") ?? "").trim().toLowerCase()
+  if (!identifier) return fail("Isi email atau username pengajar.", { identifier: "Wajib diisi" })
+  const teacher = await db.user.findFirst({
+    where: { isActive: true, role: { in: ["DOSEN", "ADMIN"] }, OR: [{ email: identifier }, { username: identifier }] },
+    select: { id: true, name: true },
+  })
+  if (!teacher) return fail("Pengajar tidak ditemukan (harus akun Pengajar/Admin yang aktif).", { identifier: "Tidak ditemukan" })
+  if (teacher.id === cls.ownerId) return fail("Ia sudah pemilik kelas ini.", { identifier: "Pemilik kelas" })
+  await db.groupMember.upsert({
+    where: { groupId_userId: { groupId: id, userId: teacher.id } },
+    create: { groupId: id, userId: teacher.id, role: "TEACHER" },
+    update: { role: "TEACHER", status: "ACTIVE", removedAt: null, blockRejoin: false },
+  })
+  await audit("CLASS_TEACHER_ADDED", { userId: actor.id, entity: "Group", entityId: id, metadata: { teacher: teacher.id } })
+  refresh()
+  return ok(`${teacher.name} ditambahkan sebagai pengajar.`)
+}
+
+export async function removeCoTeacher(id: string, userId: string): Promise<ActionResult> {
+  const actor = await requireClassTeacher()
+  if (!actor || !(await ownedClass(actor, id))) return fail("Hanya pemilik kelas atau Admin yang dapat mengatur pengajar.")
+  const r = await db.groupMember.deleteMany({ where: { groupId: id, userId, role: "TEACHER" } })
+  if (r.count === 0) return fail("Pengajar tidak ditemukan.")
+  await audit("CLASS_TEACHER_REMOVED", { userId: actor.id, entity: "Group", entityId: id, severity: "WARNING", metadata: { teacher: userId } })
+  refresh()
+  return ok("Pengajar dicabut dari kelas.")
+}
+
+// ---------------------------------------------------------------------------
+// Pengajar: daftar NIM resmi (roster)
+// ---------------------------------------------------------------------------
+
+/** Ganti seluruh daftar NIM + atur "hanya NIM terdaftar". Kosongkan untuk menghapus daftar. */
+export async function saveRoster(id: string, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
+  const actor = await requireClassTeacher()
+  if (!actor || !(await managed(actor, id))) return fail("Kelas tidak ditemukan.")
+  const { entries, invalid } = parseRoster(String(formData.get("roster") ?? ""))
+  if (invalid.length) return fail(`${invalid.length} baris tidak valid (mis. "${invalid[0]}"). NIM: 3–50 huruf/angka/titik/strip.`, { roster: "Periksa baris yang tidak valid" })
+  if (entries.length > MAX_ROSTER) return fail(`Maksimal ${MAX_ROSTER} NIM per kelas.`, { roster: "Terlalu banyak" })
+  const rosterOnly = formData.get("rosterOnly") === "on"
+  if (rosterOnly && entries.length === 0) return fail("Isi daftar NIM sebelum mengaktifkan “hanya NIM terdaftar”.", { roster: "Daftar kosong" })
+  await db.$transaction([
+    db.classRoster.deleteMany({ where: { groupId: id } }),
+    db.classRoster.createMany({ data: entries.map((e) => ({ groupId: id, ...e })) }),
+    // Daftar NIM yang dipakai sebagai syarat menyiratkan NIM wajib diisi.
+    db.group.update({ where: { id }, data: { rosterOnly, ...(rosterOnly ? { requireStudentId: true } : {}) } }),
+  ])
+  await audit("CLASS_ROSTER_SAVED", { userId: actor.id, entity: "Group", entityId: id, metadata: { count: entries.length, rosterOnly } })
+  refresh()
+  return ok(`Daftar NIM disimpan (${entries.length} NIM)${rosterOnly ? " — hanya NIM terdaftar yang dapat bergabung" : ""}.`)
 }

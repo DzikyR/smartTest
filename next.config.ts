@@ -45,9 +45,10 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
-      { source: "/:path((?!branding/|berkas/).*)", headers: securityHeaders },
-      // Berkas jawaban Tugas (unggahan mahasiswa): selalu diunduh, tidak pernah dijalankan.
+      { source: "/:path((?!branding/|berkas/|lampiran/).*)", headers: securityHeaders },
+      // Berkas jawaban Tugas & lampiran pengajar: selalu diunduh, tidak pernah dijalankan.
       { source: "/berkas/:path*", headers: [...securityHeaders.filter((h) => h.key !== "Content-Security-Policy"), { key: "Content-Security-Policy", value: "default-src 'none'; sandbox" }] },
+      { source: "/lampiran/:path*", headers: [...securityHeaders.filter((h) => h.key !== "Content-Security-Policy"), { key: "Content-Security-Policy", value: "default-src 'none'; sandbox" }] },
       // Aset unggahan Super Admin: tidak boleh menjalankan apa pun walau dibuka langsung.
       { source: "/branding/:path*", headers: [...securityHeaders.filter((h) => h.key !== "Content-Security-Policy"), { key: "Content-Security-Policy", value: "default-src 'none'; sandbox" }] },
     ]

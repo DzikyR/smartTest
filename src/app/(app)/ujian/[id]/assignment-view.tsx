@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { AssignmentPanel } from "./assignment-panel"
+import { AttachmentList } from "@/components/exam/attachment-list"
 
 type Exam = NonNullable<Awaited<ReturnType<typeof getParticipantExam>>>
 
@@ -29,6 +30,7 @@ export async function AssignmentView({ user, exam }: { user: CurrentUser; exam: 
     orderBy: { attemptNo: "desc" },
     include: { files: { orderBy: { createdAt: "asc" }, select: { id: true, fileName: true, size: true } } },
   })
+  const attachments = await db.examAttachment.findMany({ where: { examId: exam.id }, orderBy: { createdAt: "asc" }, select: { id: true, fileName: true, size: true } })
   const window = examWindow(exam)
   const open = window === "open"
   const status = attempt?.status === "GRADED" ? "graded" : attempt?.status === "SUBMITTED" ? "submitted" : window === "upcoming" ? "upcoming" : window === "closed" ? "missing" : attempt ? "draft" : "assigned"
@@ -58,13 +60,14 @@ export async function AssignmentView({ user, exam }: { user: CurrentUser; exam: 
         </div>
       </section>
 
-      {exam.instructions && (
+      {(exam.instructions || attachments.length > 0) && (
         <Card>
           <CardHeader>
             <CardTitle>Instruksi</CardTitle>
           </CardHeader>
-          <CardContent>
-            <p className="text-sm whitespace-pre-wrap">{exam.instructions}</p>
+          <CardContent className="flex flex-col gap-4">
+            {exam.instructions && <p className="text-sm whitespace-pre-wrap">{exam.instructions}</p>}
+            <AttachmentList items={attachments.map((a) => ({ id: a.id, name: a.fileName, size: a.size }))} />
           </CardContent>
         </Card>
       )}

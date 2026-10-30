@@ -121,5 +121,13 @@ check("Berkas: isi & ekstensi tidak cocok ditolak (PDF bernama .png, ZIP bernama
 check("Berkas: nama dibersihkan dari path & karakter berbahaya", safeFileName("../../etc/passwd.pdf") === "passwd.pdf" && safeFileName('C:\\Users\\a\\"tugas"<1>.pdf') === "tugas1.pdf" && safeFileName("..") === "berkas" && safeFileName("x".repeat(300) + ".pdf").length <= 121 && safeFileName("x".repeat(300) + ".pdf").endsWith(".pdf"))
 check("Berkas: Content-Disposition attachment aman untuk nama non-ASCII", attachmentHeader('Laporan "akhir" é.pdf') === `attachment; filename="Laporan _akhir_ _.pdf"; filename*=UTF-8''Laporan%20%22akhir%22%20%C3%A9.pdf`)
 
+// ---- Daftar NIM (roster) ----
+const { parseRoster } = await import(src("classes/roster.ts"))
+const ros = parseRoster("NIM\tNama\n2401001\tAndi Pratama\n2401002, Bunga\n\n2401003;Citra Maharani\n2401001 \nBAD NIM!!\n24A-01.x")
+check("Roster: tab/koma/titik koma, baris judul & kosong dilewati, NIM huruf kecil, duplikat digabung", ros.entries.length === 4 && ros.entries[0].studentId === "2401001" && ros.entries.find((e: { studentId: string }) => e.studentId === "2401003")?.name === "Citra Maharani" && ros.entries.some((e: { studentId: string }) => e.studentId === "24a-01.x"), ros)
+check("Roster: baris tidak valid dilaporkan", ros.invalid.length === 1 && ros.invalid[0] === "BAD NIM!!", ros.invalid)
+
+check("Peringatan: primary terlalu pucat untuk dipakai sebagai teks (mis. #e3f2fd di mode terang)", contrastWarnings("light", { primary: "#e3f2fd" }).some((w: { label: string }) => w.label.includes("teks")) && !contrastWarnings("light", { primary: "#1e3a8a" }).some((w: { label: string }) => w.label.includes("teks")))
+
 console.log(`\n${pass} lulus, ${fail} gagal`)
 if (fail) process.exit(1)

@@ -550,9 +550,67 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
     const tgDone = await html(p5, `/ujian/${tg.id}`)
     check("Peserta melihat nilai & komentar; tidak bisa membatalkan setelah dinilai", tgDone.includes("17.5") && tgDone.includes("Bagus, rapikan daftar pustaka.") && (await act(p5, T(tg.id), AS, "unsubmitAssignment", [tg.id]))?.ok === false)
     check("Rekap pengajar: Terlambat & nilai", (await html(rina, `/ujian-kelola/${tg.id}?tab=peserta`)).includes("Terlambat"))
+    // ---------- Fase 4: Sesi ujian publik (jalur umum) ----------
+    const SS = "ujian-kelola/session-actions"
+    const PUB = { subjectId: algo.id, title: "E2E Ujian Publik TPA", categoryId: "cat_tes", workType: "QUIZ", durationMinutes: 30, maxAttempts: 1, questionsPerPage: 1 }
+    await act(rina, "/ujian-kelola/baru", K, "createExam", [PREV, form(PUB)])
+    const pub = await one(`select id from exams where title=$1`, [PUB.title])
+    await act(rina, "/bank-soal/massal", B, "saveBulk", [algo.id, [qRaw("E2E Publik: 1 + 1 = 2?")], pub.id])
+    r = await act(rina, `/ujian-kelola/${pub.id}`, K, "setExamPublished", [pub.id, true])
+    check("Ujian tanpa kelas/sesi → tidak bisa terbit (sesi publik terhitung sebagai peserta)", r?.ok === false && /sesi publik/.test(r.error), JSON.stringify(r))
+    r = await act(budi, `/ujian-kelola/${pub.id}`, SS, "createSession", [pub.id, PREV, form({ name: "E2E Liar" })])
+    check("Pengajar lain membuat sesi di ujian orang → ditolak", r?.ok === false && !(await one(`select 1 from test_sessions where name='E2E Liar'`)), JSON.stringify(r))
+    r = await act(rina, `/ujian-kelola/${pub.id}`, SS, "createSession", [pub.id, PREV, form({ name: "E2E Gelombang 1", opensAt: wib(Date.now() + 3600_000), capacity: "1" })])
+    const ses = await one(`select id from test_sessions where name='E2E Gelombang 1'`)
+    const scodeOf = async () => (await one(`select code from access_codes where "sessionId"=$1 and status='ACTIVE'`, [ses.id]))?.code
+    let scode = await scodeOf()
+    check("Sesi dibuat → kode 6 karakter (tanpa 0/O/1/I/L)", r?.ok && /^[ABCDEFGHJKMNPQRSTUVWXYZ2-9]{6}$/.test(scode ?? ""), JSON.stringify([r, scode]))
+
+    const p6 = await login("2401006"), p8 = await login("2401008")
+    r = await join(p6, scode)
+    check("Kode sesi sebelum ujian diterbitkan → LOCKED", r?.error === "LOCKED" && /diterbitkan/.test(r.message), JSON.stringify(r))
+    await act(rina, `/ujian-kelola/${pub.id}`, K, "setExamPublished", [pub.id, true])
+    r = await join(p6, scode.toLowerCase())
+    check("Kode sesi (huruf kecil) → masuk ruang tunggu, bukan halaman kelas", r?.ok && r.kind === "session" && r.href === `/sesi/${ses.id}` && !r.already, JSON.stringify(r))
+    check("Gabung ulang ke sesi → idempoten", (await join(p6, scode))?.already === true)
+    const lobbyWait = await html(p6, `/sesi/${ses.id}`)
+    check("Ruang tunggu: hitung mundur, tanpa menu kelas; ujian muncul di Ujian Saya", lobbyWait.includes("Ujian dimulai dalam") && !lobbyWait.includes('href="/kelas"') && (await html(p6, "/ujian")).includes(PUB.title))
+    check("Bukan peserta sesi: ruang tunggu & ujian tidak terlihat", !(await html(p8, `/sesi/${ses.id}`)).includes(PUB.title) && !(await html(p8, "/ujian")).includes(PUB.title))
+    r = await act(p6, T(pub.id), P, "startExam", [pub.id, PREV, form({})])
+    check("Mulai sebelum sesi dibuka → ditolak di server", r?.ok === false && /belum dibuka/.test(r.error), JSON.stringify(r))
+    r = await join(p8, scode)
+    check("Kuota sesi 1 sudah terisi → FULL", r?.error === "FULL", JSON.stringify(r))
+
+    r = await act(rina, `/ujian-kelola/${pub.id}`, SS, "updateSession", [ses.id, PREV, form({ name: "E2E Gelombang 1", opensAt: wib(Date.now() - 60_000), capacity: "" })])
+    check("Ruang tunggu berubah menjadi tombol masuk saat sesi dibuka", r?.ok && (await html(p6, `/sesi/${ses.id}`)).includes("Masuk ruang ujian"), JSON.stringify(r))
+    r = await act(p6, T(pub.id), P, "startExam", [pub.id, PREV, form({})])
+    check("Mulai saat sesi dibuka → percobaan tercatat dengan sesinya", r?.ok && (await one(`select "sessionId" from attempts where "examId"=$1`, [pub.id]))?.sessionId === ses.id, JSON.stringify(r))
+    check("Kuota dilepas → peserta berikutnya bisa masuk", (await join(p8, scode))?.ok === true)
+
+    await act(rina, `/ujian-kelola/${pub.id}`, SS, "setSessionActive", [ses.id, false])
+    r = await act(p8, T(pub.id), P, "startExam", [pub.id, PREV, form({})])
+    check("Sesi dihentikan pengawas → tidak bisa mulai & ruang tunggu memberi tahu", r?.ok === false && /dihentikan/.test(r.error) && (await html(p8, `/sesi/${ses.id}`)).includes("dihentikan"), JSON.stringify(r))
+    await act(rina, `/ujian-kelola/${pub.id}`, SS, "setSessionActive", [ses.id, true])
+    const p8Id = (await one(`select id from users where username='2401008'`)).id
+    check("IDOR: pengajar lain mengeluarkan peserta sesi → ditolak", (await act(budi, `/ujian-kelola/${pub.id}`, SS, "removeSessionParticipant", [ses.id, p8Id]))?.ok === false)
+    r = await act(rina, `/ujian-kelola/${pub.id}`, SS, "removeSessionParticipant", [ses.id, p8Id])
+    check("Dikeluarkan dari sesi → ujian hilang & tidak bisa gabung lagi", r?.ok && !(await html(p8, "/ujian")).includes(PUB.title) && (await join(p8, scode))?.error === "REMOVED", JSON.stringify(r))
+
+    const oldScode = scode
+    await act(rina, `/ujian-kelola/${pub.id}`, SS, "rotateSessionCode", [ses.id])
+    scode = await scodeOf()
+    check("Ganti kode sesi → kode lama INVALID, peserta lama tetap terdaftar", scode !== oldScode && (await join(p6, oldScode))?.error === "INVALID" && (await join(p6, scode))?.already === true)
+    const apiS = await fetch(`${BASE}/api/v1/join`, { method: "POST", headers: { cookie: p6.header, "content-type": "application/json" }, body: JSON.stringify({ code: scode }) })
+    check("API /api/v1/join dengan kode sesi → 200 kind session", apiS.status === 200 && (await apiS.json()).kind === "session")
+    await act(sa, "/admin/fitur", F, "setFeatureRole", ["sesi.gabung", "PESERTA", false])
+    check("Fitur 'Bergabung ke Sesi Ujian Publik' dimatikan → FEATURE (kode kelas tidak terpengaruh)", (await join(p6, scode))?.error === "FEATURE")
+    await act(sa, "/admin/fitur", F, "resetFeature", ["sesi.gabung"])
+    const tabSesi = await html(rina, `/ujian-kelola/${pub.id}?tab=sesi`)
+    check("Tab Sesi Publik pengajar: sesi, kode, & status peserta", tabSesi.includes("E2E Gelombang 1") && tabSesi.includes("Fajar Nugroho") && tabSesi.includes("Mengerjakan") && tabSesi.includes("Dikeluarkan"))
   } finally {
     if (authBefore !== undefined) {
       await act(sa, "/admin/fitur", F, "resetFeature", ["kelas.gabung"])
+      await act(sa, "/admin/fitur", F, "resetFeature", ["sesi.gabung"])
       await act(sa, "/admin/fitur", F, "setAuthSetting", ["registrationOpen", authBefore?.registrationOpen ?? true])
       if (!authBefore) await pg.query(`delete from site_settings where key='auth'`) // nilai = bawaan, cache tetap konsisten
     }

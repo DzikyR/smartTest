@@ -6,6 +6,7 @@ import { db } from "@/lib/db"
 import { audit } from "@/lib/audit"
 import { requireRole, type CurrentUser } from "@/lib/auth/dal"
 import { isFeatureEnabled } from "@/lib/features/access"
+import { participantSession, sessionWindow } from "@/lib/sessions/access"
 import { rateLimit } from "@/lib/rate-limit"
 import { examWindow, getParticipantExam } from "@/lib/data/access"
 import { fail, ok, prismaCode, type ActionResult } from "@/lib/action-result"
@@ -54,6 +55,14 @@ export async function startExam(examId: string, _prev: ActionResult, formData: F
   const window = examWindow(exam)
   if (window === "upcoming") return fail("Ujian belum dibuka.")
   if (window === "closed") return fail("Ujian sudah ditutup.")
+  // Jalur umum: jendela sesi mengatur kapan boleh MULAI (setelah mulai, durasi ujian yang berlaku).
+  const session = await participantSession(user, examId)
+  if (session) {
+    const sw = sessionWindow(session)
+    if (sw === "stopped") return fail("Sesi ujian sedang dihentikan pengawas.")
+    if (sw === "upcoming") return fail("Sesi belum dibuka. Tunggu di ruang tunggu sampai waktu mulai.")
+    if (sw === "closed") return fail("Batas masuk sesi sudah lewat.")
+  }
   const done = await db.attempt.count({ where: { examId, userId: user.id } })
   if (done >= exam.maxAttempts) return fail(`Batas ${exam.maxAttempts}× kesempatan sudah tercapai.`)
   if (exam._count.questions === 0) return fail("Ujian belum memiliki soal.")
@@ -69,7 +78,7 @@ export async function startExam(examId: string, _prev: ActionResult, formData: F
   const questions = await db.examQuestion.findMany({ where: { examId }, orderBy: [{ order: "asc" }, { id: "asc" }], select: { id: true, options: true } })
   const layout = buildLayout(questions, exam)
   try {
-    const attempt = await db.attempt.create({ data: { examId, userId: user.id, attemptNo: done + 1, layout }, select: { id: true } })
+    const attempt = await db.attempt.create({ data: { examId, userId: user.id, attemptNo: done + 1, layout, sessionId: session?.id ?? null }, select: { id: true } })
     if (exam.lockDevice) await db.attempt.update({ where: { id: attempt.id }, data: { deviceTokenHash: await bindDevice(attempt.id) } })
   } catch (e) {
     if (prismaCode(e) !== "P2002") throw e // klik ganda

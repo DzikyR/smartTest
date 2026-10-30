@@ -19,6 +19,18 @@ export const FEATURES = {
     category: "Kelas",
     roles: ["PESERTA"],
   },
+  "sesi.kelola": {
+    name: "Sesi Ujian Publik",
+    description: "Pengajar/penyelenggara membuat sesi ujian umum dengan kode akses instan (tanpa kelas).",
+    category: "Ujian Publik",
+    roles: ["ADMIN", "DOSEN"],
+  },
+  "sesi.gabung": {
+    name: "Bergabung ke Sesi Ujian Publik",
+    description: "Peserta masuk ruang tunggu ujian memakai kode sesi dari penyelenggara.",
+    category: "Ujian Publik",
+    roles: ["PESERTA"],
+  },
   "bank-soal.impor": {
     name: "Impor Soal Word/Excel",
     description: "Halaman impor, pratinjau & simpan impor, unduh templat soal.",

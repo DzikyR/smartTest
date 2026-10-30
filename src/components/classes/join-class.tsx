@@ -30,7 +30,17 @@ export function JoinClassForm({ initialCode = "", onDone }: { initialCode?: stri
       setError(null)
       const r = await joinClassAction(code)
       if (r.ok) {
-        toast.success(r.already ? `Anda sudah tergabung di ${r.name}.` : r.status === "PENDING" ? `Permintaan bergabung ke ${r.name} terkirim — menunggu persetujuan pengajar.` : `Bergabung dengan ${r.name}.`)
+        toast.success(
+          r.kind === "session"
+            ? r.already
+              ? `Anda sudah terdaftar di ${r.name}.`
+              : `Terdaftar di ${r.name}. Tunggu di ruang tunggu sampai ujian dibuka.`
+            : r.already
+              ? `Anda sudah tergabung di ${r.name}.`
+              : r.status === "PENDING"
+                ? `Permintaan bergabung ke ${r.name} terkirim — menunggu persetujuan pengajar.`
+                : `Bergabung dengan ${r.name}.`
+        )
         onDone?.()
         router.push(r.href)
       } else if (r.error === "PROFILE_INCOMPLETE") {
@@ -66,7 +76,7 @@ export function JoinClassForm({ initialCode = "", onDone }: { initialCode?: stri
       )}
       {step === "code" ? (
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="class-code">Kode kelas</Label>
+          <Label htmlFor="class-code">Kode kelas atau ujian</Label>
           <Input
             id="class-code"
             value={code}
@@ -78,13 +88,13 @@ export function JoinClassForm({ initialCode = "", onDone }: { initialCode?: stri
             autoFocus
             className="h-14 rounded-xl text-center font-mono text-2xl tracking-[0.3em] uppercase"
           />
-          <p className="text-xs text-muted-foreground">6–8 karakter dari pengajar. Tidak memakai huruf O, I, L atau angka 0, 1.</p>
+          <p className="text-xs text-muted-foreground">6–8 karakter dari pengajar/panitia. Tidak memakai huruf O, I, L atau angka 0, 1.</p>
         </div>
       ) : (
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="student-id">NIM</Label>
           <Input id="student-id" value={nim} onChange={(e) => setNim(e.target.value)} placeholder="mis. 2401001" autoFocus autoComplete="off" className="h-11 rounded-xl font-mono" />
-          <p className="text-xs text-muted-foreground">Kelas ini mewajibkan NIM agar pengajar dapat mencocokkan nilai. NIM tidak bisa diubah sendiri setelah disimpan.</p>
+          <p className="text-xs text-muted-foreground">Kelas/ujian ini mewajibkan NIM atau nomor peserta agar nilai dapat dicocokkan. Tidak bisa diubah sendiri setelah disimpan.</p>
         </div>
       )}
       <div className="flex justify-end gap-2">
@@ -116,8 +126,8 @@ export function JoinClassDialog({ className, label = "Gabung kelas" }: { classNa
       />
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Gabung ke kelas</DialogTitle>
-          <DialogDescription>Masukkan kode yang dibagikan pengajar.</DialogDescription>
+          <DialogTitle>Gabung ke kelas atau ujian</DialogTitle>
+          <DialogDescription>Masukkan kode dari pengajar (kelas) atau panitia (ujian umum).</DialogDescription>
         </DialogHeader>
         <JoinClassForm onDone={() => setOpen(false)} />
       </DialogContent>

@@ -39,7 +39,7 @@ export async function getManagedExam(user: CurrentUser, examId: string) {
       subject: { select: { id: true, code: true, name: true, type: true } },
       category: { select: { name: true } },
       groups: { select: { group: { select: { id: true, name: true } } } },
-      _count: { select: { questions: true, attempts: true } },
+      _count: { select: { questions: true, attempts: true, sessions: true } },
     },
   })
 }
@@ -50,7 +50,12 @@ export function visibleExams(user: CurrentUser) {
     publishedAt: { not: null },
     subject: { isActive: true },
     // Hanya keanggotaan ACTIVE: peserta PENDING (menunggu persetujuan) / REMOVED (dikeluarkan) tidak melihat ujian kelas.
-    OR: [{ openToAll: true }, { groups: { some: { group: { members: { some: { userId: user.id, status: "ACTIVE" as const } } } } } }],
+    OR: [
+      { openToAll: true },
+      { groups: { some: { group: { members: { some: { userId: user.id, status: "ACTIVE" as const } } } } } },
+      // Jalur umum (Fase 4): peserta yang bergabung lewat kode sesi
+      { sessions: { some: { participants: { some: { userId: user.id, status: "ACTIVE" as const } } } } },
+    ],
   }
 }
 

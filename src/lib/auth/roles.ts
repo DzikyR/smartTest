@@ -32,6 +32,7 @@ export const PROTECTED_AREAS: { prefix: string; roles: Role[] }[] = [
   { prefix: "/dashboard", roles: ["SUPER_ADMIN", "ADMIN", "DOSEN", "PESERTA"] },
   { prefix: "/kelas", roles: ["SUPER_ADMIN", "ADMIN", "DOSEN", "PESERTA"] },
   { prefix: "/gabung", roles: ["SUPER_ADMIN", "ADMIN", "DOSEN", "PESERTA"] },
+  { prefix: "/sesi", roles: ["PESERTA"] },
   { prefix: "/profil", roles: ["SUPER_ADMIN", "ADMIN", "DOSEN", "PESERTA"] },
 ]
 

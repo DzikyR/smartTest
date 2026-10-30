@@ -120,16 +120,18 @@ model User {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  teaching       SubjectLecturer[]
-  memberships    GroupMember[]
-  questions      Question[]
-  examsCreated   Exam[]
-  attempts       Attempt[]         @relation("AttemptUser")
-  attemptsGraded Attempt[]         @relation("AttemptGrader")
-  auditLogs      AuditLog[]
-  resetTokens    PasswordResetToken[]
-  ownedGroups    Group[]              @relation("GroupOwner")
-  accessCodes    AccessCode[]
+  teaching        SubjectLecturer[]
+  memberships     GroupMember[]
+  questions       Question[]
+  examsCreated    Exam[]
+  attempts        Attempt[]            @relation("AttemptUser")
+  attemptsGraded  Attempt[]            @relation("AttemptGrader")
+  auditLogs       AuditLog[]
+  resetTokens     PasswordResetToken[]
+  ownedGroups     Group[]              @relation("GroupOwner")
+  sessions        SessionParticipant[]
+  createdSessions ExamSession[]        @relation("SessionCreator")
+  accessCodes     AccessCode[]
 
   @@index([role])
   @@map("users")
@@ -217,7 +219,6 @@ model Group {
   codes   AccessCode[]
 
   @@index([ownerId])
-
   @@map("groups")
 }
 
@@ -275,57 +276,59 @@ model Question {
 // -----------------------------------------------------------------------------
 
 model Exam {
-  id               String    @id @default(cuid())
-  title            String
-  kind             ExamKind  @default(KUIS)
-  instructions     String?
+  id                String    @id @default(cuid())
+  title             String
+  kind              ExamKind  @default(KUIS)
+  instructions      String?
   /// Waktu pengerjaan (menit) — diatur admin/dosen
-  durationMinutes  Int
+  durationMinutes   Int
   /// Jadwal: kosong = langsung dibuka / tanpa batas tutup
-  startAt          DateTime?
-  endAt            DateTime?
-  maxAttempts      Int       @default(1)
+  startAt           DateTime?
+  endAt             DateTime?
+  maxAttempts       Int       @default(1)
   /// Jumlah soal per halaman pada lembar ujian peserta (1 = satu soal per layar)
-  questionsPerPage Int       @default(1)
+  questionsPerPage  Int       @default(1)
   /// Nilai minimal lulus (0–100), opsional
-  passingScore     Float?
-  shuffleQuestions Boolean   @default(true)
-  shuffleOptions   Boolean   @default(true)
-  showScore        Boolean   @default(true)
+  passingScore      Float?
+  shuffleQuestions  Boolean   @default(true)
+  shuffleOptions    Boolean   @default(true)
+  showScore         Boolean   @default(true)
   /// Terbuka untuk semua peserta aktif (bila false: hanya kelompok terpilih)
-  openToAll        Boolean   @default(false)
-  token            String?
+  openToAll         Boolean   @default(false)
+  token             String?
   /// Sesi aktif — false = tidak ada percobaan baru (dihentikan pengawas)
-  sessionActive    Boolean   @default(true)
-  publishedAt      DateTime?
-  rules            String?
+  sessionActive     Boolean   @default(true)
+  publishedAt       DateTime?
+  rules             String?
   // --- Pengamanan tingkat 1 ---
-  requireFullscreen Boolean  @default(false)
-  blockCopyPaste    Boolean  @default(false)
-  lockDevice        Boolean  @default(false)
+  requireFullscreen Boolean   @default(false)
+  blockCopyPaste    Boolean   @default(false)
+  lockDevice        Boolean   @default(false)
   maxLeaves         Int?
   allowedIps        String?
   // --- Pengamanan tingkat 2 ---
-  requireSeb        Boolean  @default(false)
+  requireSeb        Boolean   @default(false)
   sebConfigKeys     String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   subjectId   String
-  subject     Subject @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  subject     Subject       @relation(fields: [subjectId], references: [id], onDelete: Restrict)
   createdById String?
-  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?         @relation(fields: [createdById], references: [id], onDelete: SetNull)
   // --- Tugas ala Classroom (Fase 3) — semua berdefault agar ujian lama tetap sah ---
-  workType         WorkType      @default(QUIZ)
+  workType    WorkType      @default(QUIZ)
   /// Kategori dinamis (Kuis, UTS, UAS, Tes, …); `kind` tetap diisi sesuai perilaku dasar kategori
-  categoryId       String?
-  category         ExamCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  categoryId  String?
+  category    ExamCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   /// Tenggat: kumpul setelah ini tetap diterima (s.d. endAt) tetapi ditandai terlambat
-  dueAt            DateTime?
+  dueAt       DateTime?
   /// false = tanpa batas durasi (durationMinutes diabaikan; batas hanya endAt)
-  timed            Boolean       @default(true)
+  timed       Boolean       @default(true)
   /// Nilai maksimum Tugas (tanpa soal) — Fase 3b
-  maxPoints        Float?
+  maxPoints   Float?
+  /// Sesi ujian publik (Fase 4) — jalur akses selain openToAll & kelompok/kelas
+  sessions    ExamSession[]
 
   questions ExamQuestion[]
   groups    ExamGroup[]
@@ -382,14 +385,14 @@ model ExamGroup {
 }
 
 model Attempt {
-  id               String        @id @default(cuid())
-  attemptNo        Int           @default(1)
-  status           AttemptStatus @default(IN_PROGRESS)
-  startedAt        DateTime      @default(now())
+  id               String           @id @default(cuid())
+  attemptNo        Int              @default(1)
+  status           AttemptStatus    @default(IN_PROGRESS)
+  startedAt        DateTime         @default(now())
   submittedAt      DateTime?
   gradedAt         DateTime?
   /// Tambahan waktu dari pengawas (menit)
-  extraMinutes     Int           @default(0)
+  extraMinutes     Int              @default(0)
   /// { [examQuestionId]: jawaban }
   answers          Json?
   flagged          Json?
@@ -399,14 +402,17 @@ model Attempt {
   /// Nilai akhir 0–100
   score            Float?
   feedback         String?
-  leaveCount       Int           @default(0)
+  leaveCount       Int              @default(0)
   lastSavedAt      DateTime?
   deviceTokenHash  String?
   autoSubmitReason String?
   /// Dikumpulkan setelah tenggat (Exam.dueAt)
-  isLate           Boolean       @default(false)
+  isLate           Boolean          @default(false)
   /// Jawaban teks untuk jenis Tugas (ASSIGNMENT)
   submissionText   String?
+  /// Sesi publik yang dipakai saat memulai (null = lewat kelas/terbuka untuk semua)
+  sessionId        String?
+  session          ExamSession?     @relation(fields: [sessionId], references: [id], onDelete: SetNull)
   files            SubmissionFile[]
 
   examId     String
@@ -513,6 +519,8 @@ model AccessCode {
   type        AccessCodeType
   groupId     String?
   group       Group?         @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  sessionId   String?
+  session     ExamSession?   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   status      CodeStatus     @default(ACTIVE)
   expiresAt   DateTime?
   maxUses     Int?
@@ -523,7 +531,59 @@ model AccessCode {
   revokedAt   DateTime?
 
   @@index([groupId])
+  @@index([sessionId])
   @@map("access_codes")
+}
+
+// -----------------------------------------------------------------------------
+//  SESI UJIAN PUBLIK (Jalur Umum / Event) — Fase 4
+//
+//  Peserta umum masuk lewat kode sesi ke ruang tunggu, tanpa struktur kelas.
+//  Jendela sesi (opensAt–closesAt) mengatur kapan peserta boleh MULAI;
+//  setelah mulai, durasi ujian yang berlaku (seperti gelombang CBT).
+// -----------------------------------------------------------------------------
+
+model ExamSession {
+  id               String    @id @default(cuid())
+  /// mis. "Gelombang 1 — Pagi"
+  name             String
+  /// Ruang tunggu dibuka untuk mulai; kosong = mengikuti jadwal ujian
+  opensAt          DateTime?
+  /// Batas MULAI mengerjakan (bukan batas kumpul)
+  closesAt         DateTime?
+  /// Kuota peserta; kosong = tanpa batas
+  capacity         Int?
+  /// false = dihentikan pengawas: tidak ada yang bisa bergabung/mulai
+  isActive         Boolean   @default(true)
+  /// Wajib NIM/nomor peserta sebelum bergabung
+  requireStudentId Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+
+  examId      String
+  exam        Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
+  createdById String?
+  createdBy   User?   @relation("SessionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  participants SessionParticipant[]
+  codes        AccessCode[]
+  attempts     Attempt[]
+
+  @@index([examId])
+  @@map("test_sessions")
+}
+
+model SessionParticipant {
+  sessionId String
+  session   ExamSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status    EnrollmentStatus @default(ACTIVE)
+  joinedAt  DateTime         @default(now())
+  removedAt DateTime?
+
+  @@id([sessionId, userId])
+  @@index([userId, status])
+  @@map("session_participants")
 }
 
 // -----------------------------------------------------------------------------

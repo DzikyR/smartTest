@@ -68,6 +68,7 @@ import {
   updateRules,
 } from "../actions"
 import { BankPickerFields, RemoveQuestionsButton } from "./client"
+import { SessionsTab } from "./sessions-tab"
 
 export const metadata: Metadata = { title: "Detail Ujian" }
 
@@ -78,6 +79,7 @@ const TABS = [
   { key: "soal", label: "Soal" },
   { key: "peserta", label: "Peserta & Pengawasan" },
   { key: "hasil", label: "Hasil" },
+  { key: "sesi", label: "Sesi Publik" },
 ] as const
 
 export default async function ExamDetailPage({ params, searchParams }: PageProps<"/ujian-kelola/[id]">) {
@@ -156,7 +158,7 @@ export default async function ExamDetailPage({ params, searchParams }: PageProps
       <UrlTabs
         label="Bagian ujian"
         active={tab}
-        tabs={TABS.map((t) => ({
+        tabs={TABS.filter((t) => t.key !== "sesi" || exam.workType !== "ASSIGNMENT").map((t) => ({
           key: t.key,
           href: `${base}?tab=${t.key}`,
           label: t.key === "soal" ? `Soal (${questions.length})` : t.key === "hasil" && report.needsGrading ? `Hasil · ${report.needsGrading} perlu dinilai` : t.label,
@@ -166,6 +168,7 @@ export default async function ExamDetailPage({ params, searchParams }: PageProps
       {tab === "ringkasan" && <SummaryTab exam={exam} questions={questions.length} report={report} />}
       {tab === "soal" && <QuestionsTab exam={exam} questions={questions} locked={locked} totalPoints={totalPoints} features={features} />}
       {tab === "peserta" && <ParticipantsTab exam={exam} report={report} />}
+      {tab === "sesi" && exam.workType !== "ASSIGNMENT" && <SessionsTab examId={exam.id} canManage={features.includes("sesi.kelola")} />}
       {tab === "hasil" && <ResultsTab exam={exam} report={report} canExport={features.includes("ujian-kelola.ekspor")} />}
     </div>
   )

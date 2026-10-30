@@ -15,13 +15,14 @@ export const metadata: Metadata = { title: "Gabung Kelas" }
 export default async function JoinPage({ searchParams }: PageProps<"/gabung">) {
   const user = await requireRole()
   const code = str((await searchParams).kode) ?? ""
-  const canJoin = user.role === "PESERTA" && (await isFeatureEnabled("kelas.gabung", user.role))
+  // Fitur per jalur (kelas/sesi) diperiksa lagi saat kode dikirim; di sini cukup salah satu aktif.
+  const canJoin = user.role === "PESERTA" && ((await isFeatureEnabled("kelas.gabung", user.role)) || (await isFeatureEnabled("sesi.gabung", user.role)))
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-6 py-6">
       <Card>
         <CardHeader>
-          <CardTitle>Gabung ke kelas</CardTitle>
+          <CardTitle>Gabung ke kelas atau ujian</CardTitle>
           <CardDescription>Periksa kodenya, lalu tekan Gabung.</CardDescription>
         </CardHeader>
         <CardContent>

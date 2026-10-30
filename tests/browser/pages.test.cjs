@@ -54,6 +54,7 @@ async function visit(s, url, expect, name, { mobileCheck = s.page.viewport()?.wi
 async function cleanTask(pg) {
   for (const f of (await pg.query(`select sf."storageKey" from submission_files sf join attempts a on a.id=sf."attemptId" where a."examId"='e2e_ui_task'`)).rows) fs.rmSync(path.join(ROOT, "uploads", f.storageKey), { force: true })
   await pg.query(`delete from exams where id='e2e_ui_task'`)
+  await pg.query(`delete from test_sessions where id='e2e_ui_session'`)
 }
 
 ;(async () => {
@@ -136,7 +137,7 @@ async function cleanTask(pg) {
     const task = (
       await pg.query(
         `insert into exams (id, title, kind, "workType", "categoryId", instructions, "durationMinutes", timed, "maxPoints", "maxAttempts", "openToAll", "publishedAt", "dueAt", "endAt", "subjectId", "updatedAt")
-         values ('e2e_ui_task', $1, 'LAINNYA', 'ASSIGNMENT', 'cat_tes', 'Unggah laporan praktikum dalam PDF.', 60, false, 20, 1, true, now(), now() + interval '1 day', now() + interval '3 day', $2, now()) returning id`,
+         values ('e2e_ui_task', $1, 'LAINNYA', 'ASSIGNMENT', 'cat_tes', 'Unggah laporan praktikum dalam PDF.', 60, false, 20, 1, true, timezone('utc', now()), timezone('utc', now()) + interval '1 day', timezone('utc', now()) + interval '3 day', $2, timezone('utc', now())) returning id`,
         [TASK_TITLE, subject.id]
       )
     ).rows[0]
@@ -156,6 +157,15 @@ async function cleanTask(pg) {
     const att = (await pg.query(`select id from attempts where "examId"=$1`, [task.id])).rows[0]
     await visit(rina, `/ujian-kelola/${task.id}/koreksi/${att.id}`, "Penilaian", "26-penilaian-tugas")
     check("Halaman penilaian: jawaban & berkas tampil", (await text(rina.page)).includes("laporan-praktikum.pdf") && (await text(rina.page)).includes("Ringkasan: rekursi"))
+
+    // ---------- Ruang tunggu sesi ujian publik ----------
+    const tryout = (await pg.query(`select id from exams where title like 'Try Out%' limit 1`)).rows[0]
+    const stuId = (await pg.query(`select id from users where username='2401007'`)).rows[0].id
+    await pg.query(`insert into test_sessions (id, name, "opensAt", "examId") values ('e2e_ui_session', 'Gelombang Uji UI', timezone('utc', now()) + interval '2 hour', $1)`, [tryout.id])
+    await pg.query(`insert into session_participants ("sessionId", "userId") values ('e2e_ui_session', $1)`, [stuId])
+    await visit(stu, "/sesi/e2e_ui_session", "Ujian dimulai dalam", "50-ruang-tunggu-gelap")
+    check("Ruang tunggu: hitung mundur berjalan, tanpa menu kelas", /\d{2}:\d{2}:\d{2}/.test(await text(stu.page)) && !(await stu.page.$('a[href="/kelas"]')))
+    await visit(stuM2, "/sesi/e2e_ui_session", "Ujian dimulai dalam", "51-ruang-tunggu-ponsel")
 
     const errors = [guest, guestM, sa, saM, rina, rinaM, stu, stuM, stuM2].flatMap((s) => s.errors)
     check("Tanpa error JavaScript di semua halaman", errors.length === 0, errors.join(" | "))

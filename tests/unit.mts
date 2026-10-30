@@ -129,5 +129,23 @@ check("Roster: baris tidak valid dilaporkan", ros.invalid.length === 1 && ros.in
 
 check("Peringatan: primary terlalu pucat untuk dipakai sebagai teks (mis. #e3f2fd di mode terang)", contrastWarnings("light", { primary: "#e3f2fd" }).some((w: { label: string }) => w.label.includes("teks")) && !contrastWarnings("light", { primary: "#1e3a8a" }).some((w: { label: string }) => w.label.includes("teks")))
 
+// ---- Login & daftar dengan Google (keputusan murni) ----
+const { decideGoogleLogin } = await import(src("auth/google.ts"))
+const ON = { googleLogin: true, registrationOpen: true }
+const NONE = { byGoogleId: null, byEmail: null }
+const gp = { sub: "g-123", email: " Andi@Gmail.com ", email_verified: true, name: "Andi Pratama" }
+let gd = decideGoogleLogin(gp, ON, NONE)
+check("Google: email belum terdaftar → buat akun (email dinormalisasi, nama dari Google)", gd.action === "create" && gd.email === "andi@gmail.com" && gd.name === "Andi Pratama", gd)
+check("Google: tanpa nama → nama dari bagian depan email", decideGoogleLogin({ ...gp, name: "" }, ON, NONE).name === "andi")
+check("Google: email belum diverifikasi Google → ditolak (cegah ambil alih akun)", decideGoogleLogin({ ...gp, email_verified: false }, ON, NONE).error === "google_unverified" && decideGoogleLogin({ ...gp, email_verified: undefined }, ON, NONE).error === "google_unverified")
+gd = decideGoogleLogin(gp, ON, { byGoogleId: null, byEmail: { id: "u1", isActive: true, googleId: null } })
+check("Google: email sudah terdaftar (akun lama) → masuk & ditautkan", gd.action === "login" && gd.userId === "u1" && gd.link === true, gd)
+gd = decideGoogleLogin(gp, ON, { byGoogleId: { id: "u1", isActive: true, googleId: "g-123" }, byEmail: null })
+check("Google: sudah tertaut → masuk tanpa tautan ulang (walau email Google berubah)", gd.action === "login" && gd.link === false, gd)
+check("Google: email sudah tertaut ke akun Google lain → ditolak", decideGoogleLogin(gp, ON, { byGoogleId: null, byEmail: { id: "u1", isActive: true, googleId: "g-LAIN" } }).error === "google_conflict")
+check("Google: akun dinonaktifkan → ditolak", decideGoogleLogin(gp, ON, { byGoogleId: null, byEmail: { id: "u1", isActive: false, googleId: null } }).error === "google_inactive")
+check("Google: pendaftaran ditutup → akun baru ditolak, akun lama tetap bisa masuk", decideGoogleLogin(gp, { googleLogin: true, registrationOpen: false }, NONE).error === "google_closed" && decideGoogleLogin(gp, { googleLogin: true, registrationOpen: false }, { byGoogleId: null, byEmail: { id: "u1", isActive: true, googleId: null } }).action === "login")
+check("Google: dimatikan Super Admin → ditolak", decideGoogleLogin(gp, { googleLogin: false, registrationOpen: true }, NONE).error === "google_disabled")
+
 console.log(`\n${pass} lulus, ${fail} gagal`)
 if (fail) process.exit(1)

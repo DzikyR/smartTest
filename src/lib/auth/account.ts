@@ -4,6 +4,7 @@ import { db } from "@/lib/db"
 import { generateTempPassword, hashPassword } from "@/lib/password"
 import { getAuthSettings, getTexts } from "@/lib/site/config"
 import { sendMail } from "@/lib/mail"
+import { decideGoogleLogin, normalizeGoogleEmail, type GoogleProfile } from "./google"
 
 // ---------------------------------------------------------------------------
 // Reset password
@@ -67,32 +68,32 @@ export async function sendResetEmail(user: { name: string; email: string }, toke
 // Login dengan Google
 // ---------------------------------------------------------------------------
 
-export type GoogleProfile = { sub?: string; email?: string | null; email_verified?: boolean; name?: string | null }
+export type { GoogleProfile } from "./google"
 
 /**
- * Tautkan/buat akun dari profil Google. Mengembalikan true, atau URL /login
- * berisi kode error. Email hanya dipercaya bila sudah diverifikasi Google.
+ * Login/daftar dengan Google: keputusan dari decideGoogleLogin (murni, teruji unit),
+ * lalu terapkan ke database. Mengembalikan true, atau URL /login berisi kode error.
  */
 export async function linkGoogleAccount(profile: GoogleProfile): Promise<true | string> {
   const settings = await getAuthSettings()
-  if (!settings.googleLogin) return "/login?error=google_disabled"
-  const email = profile.email?.toLowerCase().trim()
-  if (!profile.sub || !email || profile.email_verified !== true) return "/login?error=google_unverified"
+  const email = normalizeGoogleEmail(profile.email)
+  const select = { id: true, isActive: true, googleId: true } as const
+  const [byGoogleId, byEmail] = await Promise.all([
+    profile.sub ? db.user.findUnique({ where: { googleId: profile.sub }, select }) : null,
+    email ? db.user.findUnique({ where: { email }, select }) : null,
+  ])
+  const decision = decideGoogleLogin(profile, settings, { byGoogleId, byEmail })
 
-  const user = (await db.user.findUnique({ where: { googleId: profile.sub } })) ?? (await db.user.findUnique({ where: { email } }))
-  if (user) {
-    if (!user.isActive) return "/login?error=google_inactive"
-    if (user.googleId && user.googleId !== profile.sub) return "/login?error=google_conflict"
-    await db.user.update({ where: { id: user.id }, data: { googleId: profile.sub, lastLoginAt: new Date(), failedLoginCount: 0, lockedUntil: null } })
-    await db.auditLog.create({ data: { action: "LOGIN_SUCCESS", userId: user.id, metadata: { provider: "google", linked: !user.googleId } } })
+  if (decision.action === "deny") return `/login?error=${decision.error}`
+  if (decision.action === "login") {
+    await db.user.update({ where: { id: decision.userId }, data: { ...(decision.link ? { googleId: profile.sub } : {}), lastLoginAt: new Date(), failedLoginCount: 0, lockedUntil: null } })
+    await db.auditLog.create({ data: { action: "LOGIN_SUCCESS", userId: decision.userId, metadata: { provider: "google", linked: decision.link } } })
     return true
   }
-
-  if (!settings.registrationOpen) return "/login?error=google_closed"
   const created = await db.user.create({
     data: {
-      email,
-      name: (profile.name || email.split("@")[0]).slice(0, 120),
+      email: decision.email,
+      name: decision.name,
       googleId: profile.sub,
       role: "PESERTA",
       // Akun Google tidak punya password; password acak ini tidak diketahui siapa pun (bisa diatur lewat Lupa Password).

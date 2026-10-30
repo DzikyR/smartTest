@@ -20,6 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { saveProgress, startExam, submitExam } from "../actions"
 import { ExamRunner } from "./exam-runner"
+import { AssignmentView } from "./assignment-view"
 import { SebHashField } from "./seb-hash-field"
 
 export const metadata: Metadata = { title: "Ujian" }
@@ -31,6 +32,7 @@ export default async function TakeExamPage({ params }: PageProps<"/ujian/[id]">)
   const { id } = await params
   const exam = await getParticipantExam(user, id)
   if (!exam) notFound()
+  if (exam.workType === "ASSIGNMENT") return <AssignmentView user={user} exam={exam} />
 
   const attempts = await db.attempt.findMany({ where: { examId: id, userId: user.id }, orderBy: { attemptNo: "desc" } })
   const running = attempts.find((a) => a.status === "IN_PROGRESS") ?? null

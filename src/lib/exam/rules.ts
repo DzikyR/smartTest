@@ -15,6 +15,7 @@ export type RuleExam = {
   endAt: Date | null
   timed?: boolean
   dueAt?: Date | null
+  workType?: string
   maxAttempts: number
   token?: string | null
   showScore: boolean
@@ -49,7 +50,7 @@ export function customRulesError(text: string | null | undefined) {
 export function examRules(exam: RuleExam): ExamRule[] {
   const sys: string[] = []
   sys.push(
-    `Terdiri dari ${exam._count.questions} soal; ${exam.timed === false ? "tanpa batas durasi pengerjaan" : `waktu pengerjaan ${exam.durationMinutes} menit dihitung sejak tombol Mulai ditekan`}${exam.dueAt ? `; tenggat ${formatDateTime(exam.dueAt)} (setelahnya ditandai terlambat)` : ""}${exam.endAt ? `; ditutup ${formatDateTime(exam.endAt)}` : ""}.`
+    exam.workType === "ASSIGNMENT" ? `Tugas: tulis jawaban dan/atau unggah berkas, lalu tekan Serahkan${exam.dueAt ? `; tenggat ${formatDateTime(exam.dueAt)} (setelahnya ditandai terlambat)` : ""}${exam.endAt ? `; ditutup ${formatDateTime(exam.endAt)}` : ""}. Sebelum dinilai, pengiriman dapat dibatalkan untuk diperbaiki.` : `Terdiri dari ${exam._count.questions} soal; ${exam.timed === false ? "tanpa batas durasi pengerjaan" : `waktu pengerjaan ${exam.durationMinutes} menit dihitung sejak tombol Mulai ditekan`}${exam.dueAt ? `; tenggat ${formatDateTime(exam.dueAt)} (setelahnya ditandai terlambat)` : ""}${exam.endAt ? `; ditutup ${formatDateTime(exam.endAt)}` : ""}.`
   )
   sys.push(exam.maxAttempts > 1 ? `Kesempatan mengerjakan ${exam.maxAttempts}×; nilai terbaik yang dipakai.` : "Hanya satu kali kesempatan mengerjakan.")
   if (exam.passingScore) sys.push(`Nilai minimal lulus: ${exam.passingScore}.`)

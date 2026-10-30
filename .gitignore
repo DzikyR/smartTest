@@ -57,3 +57,6 @@ next-env.d.ts
 
 # email lokal (MAIL_TRANSPORT=file)
 /.mail-outbox
+
+# berkas jawaban tugas (UPLOAD_DIR) — backup terpisah, jangan di-commit
+/uploads

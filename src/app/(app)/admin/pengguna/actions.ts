@@ -10,6 +10,7 @@ import { audit } from "@/lib/audit"
 import { requireRole, type CurrentUser } from "@/lib/auth/dal"
 import { ADMINS } from "@/lib/auth/roles"
 import { MAX_DELETE, MAX_GENERATE, ROLES, userWhere } from "@/lib/data/users"
+import { removeStoredFiles } from "@/lib/submissions/storage"
 import { generateTempPassword, hashPassword } from "@/lib/password"
 import { fail, formObject, ok, prismaCode, zodFail, type ActionResult } from "@/lib/action-result"
 import { MAX_UPLOAD_BYTES } from "@/lib/exam/office"
@@ -314,7 +315,10 @@ export async function deleteUsers(raw: DeleteTarget, expectedCount: number): Pro
   // Data berubah sejak pratinjau (mis. akun baru cocok dengan filter) → jangan hapus diam-diam lebih banyak.
   if (users.length !== expectedCount) return fail("Jumlah akun berubah sejak pratinjau. Tinjau ulang sebelum menghapus.")
 
-  const { count } = await db.user.deleteMany({ where: { id: { in: users.map((u) => u.id) } } })
+  const userIds = users.map((u) => u.id)
+  const files = await db.submissionFile.findMany({ where: { attempt: { userId: { in: userIds } } }, select: { storageKey: true } })
+  const { count } = await db.user.deleteMany({ where: { id: { in: userIds } } })
+  await removeStoredFiles(files.map((f) => f.storageKey)) // baris DB sudah terhapus (cascade); berkas di disk ikut dibersihkan
   await audit("USERS_DELETED", {
     userId: actor.id,
     entity: "User",

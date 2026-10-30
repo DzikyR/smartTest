@@ -14,6 +14,7 @@ const pw = Object.fromEntries(fs.readFileSync(`${ROOT}/.akun-demo.txt`, "utf8").
 const DESKTOP = { width: 1440, height: 900, deviceScaleFactor: 1 }
 const MOBILE = { width: 390, height: 844, deviceScaleFactor: 1, isMobile: true, hasTouch: true }
 const CLASS_NAME = "E2E UI Kelas Algoritma"
+const TASK_TITLE = "E2E UI Tugas Laporan Praktikum"
 
 let pass = 0, fail = 0
 const check = (n, ok, x = "") => { ok ? pass++ : fail++; console.log(`${ok ? "PASS" : "FAIL"}  ${n}${x && !ok ? "  — " + String(x).slice(0, 300) : ""}`) }
@@ -49,8 +50,15 @@ async function visit(s, url, expect, name, { mobileCheck = s.page.viewport()?.wi
   check(`${name}: tampil${mobileCheck ? " tanpa scroll horizontal" : ""}`, ok && (!mobileCheck || (await overflow(s.page)) <= 1), ok ? `overflow ${await overflow(s.page)}px` : `teks "${expect}" tidak ditemukan`)
 }
 
+/** Hapus tugas uji beserta berkasnya di disk. */
+async function cleanTask(pg) {
+  for (const f of (await pg.query(`select sf."storageKey" from submission_files sf join attempts a on a.id=sf."attemptId" where a."examId"='e2e_ui_task'`)).rows) fs.rmSync(path.join(ROOT, "uploads", f.storageKey), { force: true })
+  await pg.query(`delete from exams where id='e2e_ui_task'`)
+}
+
 ;(async () => {
   const pg = new Client({ connectionString: process.env.DATABASE_URL }); await pg.connect()
+  await cleanTask(pg)
   await pg.query(`delete from groups where name=$1`, [CLASS_NAME])
   const browser = await puppeteer.launch({ executablePath: EDGE, headless: true })
   try {
@@ -123,10 +131,37 @@ async function visit(s, url, expect, name, { mobileCheck = s.page.viewport()?.wi
     const rinaM = await session(browser, "dosen.rina", { viewport: MOBILE })
     await visit(rinaM, `/kelas/${cls.id}?tab=pengaturan`, "Kode kelas", "25-pengaturan-ponsel")
 
-    const errors = [guest, guestM, sa, saM, rina, rinaM, stu, stuM].flatMap((s) => s.errors)
+    // ---------- Tugas (ASSIGNMENT): unggah berkas → serahkan → halaman penilaian ----------
+    const subject = (await pg.query(`select id from subjects where code='IF101'`)).rows[0]
+    const task = (
+      await pg.query(
+        `insert into exams (id, title, kind, "workType", "categoryId", instructions, "durationMinutes", timed, "maxPoints", "maxAttempts", "openToAll", "publishedAt", "dueAt", "endAt", "subjectId", "updatedAt")
+         values ('e2e_ui_task', $1, 'LAINNYA', 'ASSIGNMENT', 'cat_tes', 'Unggah laporan praktikum dalam PDF.', 60, false, 20, 1, true, now(), now() + interval '1 day', now() + interval '3 day', $2, now()) returning id`,
+        [TASK_TITLE, subject.id]
+      )
+    ).rows[0]
+    const pdf = path.join(SHOTS, "laporan-praktikum.pdf")
+    fs.writeFileSync(pdf, "%PDF-1.4\n% E2E UI\n%%EOF\n")
+    await visit(stu, `/ujian/${task.id}`, "Tugas Anda", "40-tugas-peserta-gelap")
+    await stu.page.type("#assignment-text", "Ringkasan: rekursi memanggil dirinya sendiri sampai kasus dasar.")
+    const input = await stu.page.$("#assignment-file")
+    await input.uploadFile(pdf)
+    check("Unggah berkas lewat browser → tampil di daftar", await waitText(stu.page, "laporan-praktikum.pdf", 15000))
+    await shot(stu.page, "41-tugas-draf-gelap")
+    await clickText(stu.page, "button", "Serahkan")
+    check("Serahkan → status Diserahkan & tombol Batalkan pengiriman", (await waitText(stu.page, "Batalkan pengiriman", 15000)) && (await text(stu.page)).includes("Diserahkan"))
+    await shot(stu.page, "42-tugas-diserahkan-gelap")
+    const stuM2 = await session(browser, "2401007", { viewport: MOBILE })
+    await visit(stuM2, `/ujian/${task.id}`, "Tugas Anda", "43-tugas-ponsel")
+    const att = (await pg.query(`select id from attempts where "examId"=$1`, [task.id])).rows[0]
+    await visit(rina, `/ujian-kelola/${task.id}/koreksi/${att.id}`, "Penilaian", "26-penilaian-tugas")
+    check("Halaman penilaian: jawaban & berkas tampil", (await text(rina.page)).includes("laporan-praktikum.pdf") && (await text(rina.page)).includes("Ringkasan: rekursi"))
+
+    const errors = [guest, guestM, sa, saM, rina, rinaM, stu, stuM, stuM2].flatMap((s) => s.errors)
     check("Tanpa error JavaScript di semua halaman", errors.length === 0, errors.join(" | "))
   } finally {
     await browser.close()
+    await cleanTask(pg)
     await pg.query(`delete from groups where name=$1`, [CLASS_NAME])
     await pg.end()
   }

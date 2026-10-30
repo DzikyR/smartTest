@@ -27,6 +27,7 @@ export async function startExam(examId: string, _prev: ActionResult, formData: F
   if (throttled(user)) return fail("Terlalu banyak permintaan. Coba lagi sebentar lagi.")
   const exam = await getParticipantExam(user, examId)
   if (!exam) return fail(NOT_FOUND)
+  if (exam.workType === "ASSIGNMENT") return fail("Tugas dikerjakan dari halaman tugas (tulis jawaban/unggah berkas, lalu Serahkan).")
   const sebHash = String(formData.get("sebHash") ?? "") || undefined
 
   const env = await checkExamEnvironment(exam, sebHash)
@@ -88,7 +89,8 @@ async function ownRunning(user: CurrentUser, attemptId: string) {
   })
   if (!attempt) return null
   const exam = await getParticipantExam(user, attempt.examId)
-  return exam ? { attempt, exam } : null
+  // Draf Tugas bukan lembar ujian: tidak boleh disimpan/dikoreksi lewat jalur kuis.
+  return exam && exam.workType !== "ASSIGNMENT" ? { attempt, exam } : null
 }
 
 async function guard(found: NonNullable<Awaited<ReturnType<typeof ownRunning>>>, sebHash?: string) {

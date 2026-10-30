@@ -34,13 +34,15 @@ export function sanitizeAnswers(raw: QuizAnswers, validIds: Set<string>) {
  */
 export async function finalizeAttempt(opts: {
   attemptId: string
-  exam: { id: string; dueAt?: Date | null } & TimedExam
+  exam: { id: string; dueAt?: Date | null; workType?: string } & TimedExam
   answers?: QuizAnswers
   flagged?: string[]
   actorId: string
   /** Dicatat bila dikumpulkan otomatis: "LEAVE_LIMIT" | "PROCTOR" | "TIMEOUT" */
   autoReason?: string
 }) {
+  // Tugas dinilai manual oleh pengajar — tidak pernah dikoreksi otomatis sebagai kuis tanpa soal.
+  if (opts.exam.workType === "ASSIGNMENT") return null
   const attempt = await db.attempt.findFirst({
     where: { id: opts.attemptId, examId: opts.exam.id, status: "IN_PROGRESS" },
     select: { id: true, attemptNo: true, startedAt: true, extraMinutes: true, answers: true, userId: true },

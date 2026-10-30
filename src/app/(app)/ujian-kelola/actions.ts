@@ -35,7 +35,8 @@ const examSchema = z
       .string()
       .optional()
       .transform((v) => v || null),
-    workType: z.enum(["QUIZ", "QUESTION"]).default("QUIZ"),
+    workType: z.enum(["QUIZ", "QUESTION", "ASSIGNMENT"]).default("QUIZ"),
+    maxPoints: optionalNumber(1, 1000, "Poin maksimal", false),
     dueAt: optionalLocalDateTime,
     /** Dikirim sebagai "Tanpa batas durasi" agar form/klien lama tetap ber-durasi. */
     untimed: checkbox,
@@ -68,6 +69,7 @@ const examSchema = z
   })
   .superRefine((v, ctx) => {
     if (v.startAt && v.endAt && v.endAt <= v.startAt) ctx.addIssue({ code: "custom", path: ["endAt"], message: "Waktu tutup harus setelah waktu buka" })
+    if (v.workType === "ASSIGNMENT" && v.maxPoints === null) ctx.addIssue({ code: "custom", path: ["maxPoints"], message: "Isi poin maksimal tugas" })
     if (v.dueAt && v.endAt && v.dueAt > v.endAt) ctx.addIssue({ code: "custom", path: ["dueAt"], message: "Tenggat tidak boleh setelah waktu tutup" })
     if (v.dueAt && v.startAt && v.dueAt <= v.startAt) ctx.addIssue({ code: "custom", path: ["dueAt"], message: "Tenggat harus setelah waktu buka" })
     const ips = parseIpList(v.allowedIps).invalid
@@ -93,7 +95,12 @@ async function parseExam(user: CurrentUser, formData: FormData, examId?: string)
   // Hanya kelas yang boleh dituju actor; ID lain (mis. form dimodifikasi) diabaikan.
   const allowed = examId ? { OR: [targetableClasses(user), { exams: { some: { examId } } }] } : targetableClasses(user)
   const groups = v.openToAll ? [] : (await db.group.findMany({ where: { AND: [{ id: { in: groupIds } }, allowed] }, select: { id: true } })).map((g) => g.id)
-  return { data: { ...v, timed: !untimed, showScore: !hideScore }, groups }
+  // Tugas: tanpa durasi & satu kali pengiriman (bisa dibatalkan/diperbaiki sebelum dinilai).
+  const assignment = v.workType === "ASSIGNMENT"
+  return {
+    data: { ...v, timed: assignment ? false : !untimed, maxAttempts: assignment ? 1 : v.maxAttempts, maxPoints: assignment ? v.maxPoints : null, showScore: !hideScore },
+    groups,
+  }
 }
 
 export async function createExam(_prev: ActionResult, formData: FormData) {
@@ -105,7 +112,7 @@ export async function createExam(_prev: ActionResult, formData: FormData) {
     select: { id: true },
   })
   await audit("EXAM_CREATED", { userId: user.id, entity: "Exam", entityId: exam.id, metadata: { kind: data.kind } })
-  redirect(`/ujian-kelola/${exam.id}?tab=soal`)
+  redirect(data.workType === "ASSIGNMENT" ? `/ujian-kelola/${exam.id}` : `/ujian-kelola/${exam.id}?tab=soal`)
 }
 
 export async function updateExam(examId: string, _prev: ActionResult, formData: FormData) {
@@ -128,7 +135,8 @@ export async function setExamPublished(examId: string, published: boolean): Prom
   const user = await requireRole(...STAFF)
   const exam = await getManagedExam(user, examId)
   if (!exam) return fail(DENIED)
-  if (published && exam._count.questions === 0) return fail("Tambahkan minimal satu soal sebelum menerbitkan.")
+  if (published && exam.workType !== "ASSIGNMENT" && exam._count.questions === 0) return fail("Tambahkan minimal satu soal sebelum menerbitkan.")
+  if (published && exam.workType === "ASSIGNMENT" && !exam.maxPoints) return fail("Isi poin maksimal tugas (menu Ubah) sebelum menerbitkan.")
   if (published && exam.workType === "QUESTION" && exam._count.questions !== 1) return fail("Pertanyaan harus berisi tepat satu soal. Hapus soal lain atau ubah jenisnya menjadi Tugas Kuis.")
   if (published && !exam.openToAll && exam.groups.length === 0) return fail("Tentukan peserta: pilih kelompok atau buka untuk semua peserta (menu Ubah).")
   await db.exam.update({ where: { id: examId }, data: { publishedAt: published ? (exam.publishedAt ?? new Date()) : null } })
@@ -342,6 +350,7 @@ export async function finishAttempts(examId: string, scope: "expired" | "all" | 
   const user = await requireRole(...STAFF)
   const exam = await getManagedExam(user, examId)
   if (!exam) return fail(DENIED)
+  if (exam.workType === "ASSIGNMENT") return fail("Tidak berlaku untuk Tugas — draf mahasiswa tidak dikumpulkan paksa.")
   const running = await db.attempt.findMany({
     where: { examId, status: "IN_PROGRESS", ...(typeof scope === "object" ? { id: scope.attemptId } : {}) },
     select: { id: true, startedAt: true, extraMinutes: true },
@@ -374,4 +383,26 @@ export async function gradeAttempt(attemptId: string, _prev: ActionResult, formD
   await audit(attempt.status === "GRADED" ? "ATTEMPT_REGRADED" : "ATTEMPT_GRADED", { userId: user.id, entity: "Attempt", entityId: attemptId, metadata: { score, previous: attempt.score } })
   refresh()
   return ok(`Nilai ${attempt.user.name}: ${score}`)
+}
+
+/** Nilai Tugas (ASSIGNMENT): poin 0–maks + komentar. Penilaian ulang diperbolehkan. */
+export async function gradeAssignment(attemptId: string, _prev: ActionResult, formData: FormData) {
+  const user = await requireRole(...STAFF)
+  const attempt = await db.attempt.findFirst({
+    where: { id: attemptId, status: { in: ["SUBMITTED", "GRADED"] }, exam: { workType: "ASSIGNMENT", subject: managedSubjects(user) } },
+    select: { id: true, status: true, score: true, exam: { select: { maxPoints: true } }, user: { select: { name: true } } },
+  })
+  if (!attempt) return fail("Tugas tidak ditemukan, belum diserahkan, atau di luar kewenangan Anda.")
+  const max = attempt.exam.maxPoints ?? 100
+  const raw = String(formData.get("points") ?? "").trim()
+  const points = Number(raw.replace(",", "."))
+  if (raw === "" || !Number.isFinite(points) || points < 0 || points > max) return fail("Periksa poin.", { points: `Isi 0–${max}` })
+  const feedback = String(formData.get("feedback") ?? "").trim().slice(0, 5000) || null
+  const score = round2((points / max) * 100)
+  // updateMany + status: mahasiswa yang membatalkan pengiriman di detik yang sama tidak ikut "dinilai" sebagai draf.
+  const r = await db.attempt.updateMany({ where: { id: attemptId, status: { in: ["SUBMITTED", "GRADED"] } }, data: { score, status: "GRADED", gradedAt: new Date(), gradedById: user.id, feedback } })
+  if (r.count === 0) return fail("Mahasiswa baru saja membatalkan pengiriman — tunggu diserahkan ulang.")
+  await audit(attempt.status === "GRADED" ? "ATTEMPT_REGRADED" : "ATTEMPT_GRADED", { userId: user.id, entity: "Attempt", entityId: attemptId, metadata: { points, max, score, previous: attempt.score } })
+  refresh()
+  return ok(`Nilai ${attempt.user.name}: ${round2(points)} / ${max}`)
 }

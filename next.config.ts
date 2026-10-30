@@ -40,12 +40,14 @@ const nextConfig: NextConfig = {
   // Pustaka Office (Excel/Word) berjalan di Node.js, tidak perlu dibundel.
   serverExternalPackages: ["exceljs", "mammoth", "docx"],
   experimental: {
-    // Unggah berkas soal (≤ 5 MB) lewat Server Action.
-    serverActions: { bodySizeLimit: "6mb" },
+    // Unggah berkas soal (≤ 5 MB) & berkas jawaban Tugas (≤ 8 MB) lewat Server Action.
+    serverActions: { bodySizeLimit: "9mb" },
   },
   async headers() {
     return [
-      { source: "/:path((?!branding/).*)", headers: securityHeaders },
+      { source: "/:path((?!branding/|berkas/).*)", headers: securityHeaders },
+      // Berkas jawaban Tugas (unggahan mahasiswa): selalu diunduh, tidak pernah dijalankan.
+      { source: "/berkas/:path*", headers: [...securityHeaders.filter((h) => h.key !== "Content-Security-Policy"), { key: "Content-Security-Policy", value: "default-src 'none'; sandbox" }] },
       // Aset unggahan Super Admin: tidak boleh menjalankan apa pun walau dibuka langsung.
       { source: "/branding/:path*", headers: [...securityHeaders.filter((h) => h.key !== "Content-Security-Policy"), { key: "Content-Security-Policy", value: "default-src 'none'; sandbox" }] },
     ]

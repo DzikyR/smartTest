@@ -405,6 +405,9 @@ model Attempt {
   autoSubmitReason String?
   /// Dikumpulkan setelah tenggat (Exam.dueAt)
   isLate           Boolean       @default(false)
+  /// Jawaban teks untuk jenis Tugas (ASSIGNMENT)
+  submissionText   String?
+  files            SubmissionFile[]
 
   examId     String
   exam       Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
@@ -521,6 +524,32 @@ model AccessCode {
 
   @@index([groupId])
   @@map("access_codes")
+}
+
+// -----------------------------------------------------------------------------
+//  BERKAS JAWABAN TUGAS — isi berkas di disk (UPLOAD_DIR), bukan di database
+//
+//  Path di disk berupa kunci acak (bukan nama berkas dari pengguna) → tidak ada
+//  path traversal. Wajib di-backup bersama folder UPLOAD_DIR.
+// -----------------------------------------------------------------------------
+
+model SubmissionFile {
+  id         String   @id @default(cuid())
+  /// Nama asli (hanya untuk tampilan & Content-Disposition, disanitasi)
+  fileName   String
+  /// Dideteksi dari isi berkas (magic bytes), bukan dari klien
+  mimeType   String
+  size       Int
+  /// Path relatif di dalam UPLOAD_DIR, mis. "submissions/<examId>/<attemptId>/<acak>"
+  storageKey String   @unique
+  sha256     String
+  createdAt  DateTime @default(now())
+
+  attemptId String
+  attempt   Attempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@index([attemptId])
+  @@map("submission_files")
 }
 
 model PasswordResetToken {

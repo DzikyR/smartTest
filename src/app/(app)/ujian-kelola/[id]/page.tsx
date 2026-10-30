@@ -332,6 +332,14 @@ async function QuestionsTab({
     orderBy: [{ topic: "asc" }, { createdAt: "asc" }],
     select: { id: true, type: true, prompt: true, points: true, topic: true, difficulty: true },
   })
+  if (exam.workType === "ASSIGNMENT") {
+    return (
+      <EmptyState
+        title="Tugas tanpa soal"
+        description={`Mahasiswa menulis jawaban dan/atau mengunggah berkas, lalu menyerahkan. Nilai diberikan manual (0–${exam.maxPoints ?? 100} poin) dari tab Peserta.`}
+      />
+    )
+  }
   const used = new Set(questions.map((q) => q.sourceId).filter(Boolean))
   const topics = [...new Set(bank.map((b) => b.topic).filter((t): t is string => !!t))]
 
@@ -489,7 +497,7 @@ function ParticipantsTab({ exam, report }: { exam: Exam; report: Report }) {
                     <td className="px-3 py-3">
                       {running ? (
                         <span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", running.expired ? "bg-muted text-muted-foreground" : "bg-tint-orange text-tint-orange-fg")}>
-                          {running.expired ? "Waktu habis" : Number.isFinite(running.deadline) ? `Mengerjakan · s.d. ${formatTime(new Date(running.deadline))}` : "Mengerjakan"}
+                          {exam.workType === "ASSIGNMENT" ? "Draf — belum diserahkan" : running.expired ? "Waktu habis" : Number.isFinite(running.deadline) ? `Mengerjakan · s.d. ${formatTime(new Date(running.deadline))}` : "Mengerjakan"}
                         </span>
                       ) : latest ? (
                         <span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", latest.status === "SUBMITTED" ? "bg-tint-sky text-tint-sky-fg" : "bg-tint-green text-tint-green-fg")}>
@@ -504,7 +512,7 @@ function ParticipantsTab({ exam, report }: { exam: Exam; report: Report }) {
                     <td className="px-3 py-3 text-xs text-muted-foreground">
                       {running ? (
                         <>
-                          {running.answered} terjawab
+                          {exam.workType === "ASSIGNMENT" ? "draf" : `${running.answered} terjawab`}
                           {running.lastSavedAt && ` · simpan ${formatTime(running.lastSavedAt)}`}
                           {running.extraMinutes > 0 && ` · +${running.extraMinutes} mnt`}
                         </>
@@ -518,7 +526,7 @@ function ParticipantsTab({ exam, report }: { exam: Exam; report: Report }) {
                     <td className="px-3 py-3 font-semibold tabular-nums">{best ?? "—"}</td>
                     <td className="px-5 py-3">
                       <div className="flex justify-end gap-1">
-                        {running && (
+                        {running && exam.workType !== "ASSIGNMENT" && (
                           <>
                             <FormDialog
                               title={`Tambah waktu ${user.name}`}

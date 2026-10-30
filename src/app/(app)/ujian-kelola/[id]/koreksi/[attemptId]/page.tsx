@@ -16,6 +16,7 @@ import { buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { gradeAttempt } from "../../../actions"
+import { AssignmentGrading } from "./assignment-grading"
 
 export const metadata: Metadata = { title: "Koreksi" }
 
@@ -28,9 +29,15 @@ export default async function GradeAttemptPage({ params }: PageProps<"/ujian-kel
   const { id, attemptId } = await params
   const attempt = await db.attempt.findFirst({
     where: { id: attemptId, examId: id, status: { not: "IN_PROGRESS" }, exam: { subject: managedSubjects(user) } },
-    include: { user: { select: { name: true, username: true, email: true } }, gradedBy: { select: { name: true } }, exam: { select: { title: true } } },
+    include: {
+      user: { select: { name: true, username: true, email: true } },
+      gradedBy: { select: { name: true } },
+      exam: { select: { title: true, workType: true, maxPoints: true } },
+      files: { orderBy: { createdAt: "asc" }, select: { id: true, fileName: true, size: true } },
+    },
   })
   if (!attempt) notFound()
+  if (attempt.exam.workType === "ASSIGNMENT") return <AssignmentGrading examId={id} examTitle={attempt.exam.title} maxPoints={attempt.exam.maxPoints ?? 100} attempt={attempt} />
   const questions = await db.examQuestion.findMany({ where: { examId: id }, orderBy: [{ order: "asc" }, { id: "asc" }] })
   const answers = (attempt.answers as Record<string, string> | null) ?? {}
   const scores = (attempt.questionScores as Record<string, number> | null) ?? {}

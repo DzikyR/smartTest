@@ -495,6 +495,61 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
 
     r = await act(admin, "/admin/kategori", CT, "setCategoryActive", [cat.id, false])
     check("Kategori nonaktif: hilang dari form ujian baru, tetap ada di form ubah ujian yang memakainya", r?.ok && !(await html(rina, "/ujian-kelola/baru")).includes("E2E Psikotes") && (await html(rina, `/ujian-kelola/${qx.id}/ubah`)).includes("E2E Psikotes"))
+    // ---------- Fase 3b: Tugas (ASSIGNMENT) — unggah berkas, serahkan, nilai manual ----------
+    const AS = "ujian/assignment-actions"
+    const TG = { subjectId: algo.id, title: "E2E Tugas Laporan Rekursi", categoryId: "cat_tes", workType: "ASSIGNMENT", instructions: "Unggah laporan PDF.", durationMinutes: 60, maxAttempts: 3, questionsPerPage: 1, openToAll: "on", dueAt: wib(Date.now() - 3600_000), endAt: wib(Date.now() + 2 * 86400_000) }
+    r = await act(rina, "/ujian-kelola/baru", K, "createExam", [PREV, form(TG)])
+    check("Tugas tanpa poin maksimal → ditolak per field", r?.ok === false && !!r.fieldErrors?.maxPoints, JSON.stringify(r))
+    await act(rina, "/ujian-kelola/baru", K, "createExam", [PREV, form({ ...TG, maxPoints: 20 })])
+    const tg = await one(`select id, "workType", timed, "maxAttempts", "maxPoints" from exams where title=$1`, [TG.title])
+    r = await act(rina, `/ujian-kelola/${tg?.id}`, K, "setExamPublished", [tg?.id, true])
+    check("Tugas tersimpan (tanpa durasi, 1× pengiriman, 20 poin) & terbit tanpa soal", tg?.workType === "ASSIGNMENT" && tg.timed === false && tg.maxAttempts === 1 && tg.maxPoints === 20 && r?.ok, JSON.stringify([tg, r]))
+
+    const tgPage = await html(p5, `/ujian/${tg.id}`)
+    check("Halaman Tugas peserta: instruksi, status Ditugaskan, lewat tenggat", tgPage.includes("Unggah laporan PDF.") && tgPage.includes("Ditugaskan") && tgPage.includes("Lewat tenggat"))
+    check("Jalur kuis menolak Tugas (startExam)", /halaman tugas/.test((await act(p5, T(tg.id), P, "startExam", [tg.id, PREV, form({})]))?.error ?? ""))
+    check("Serahkan kosong → ditolak", /minimal satu berkas/.test((await act(p5, T(tg.id), AS, "submitAssignment", [tg.id, "  "]))?.error ?? ""))
+    r = await act(p5, T(tg.id), AS, "saveAssignmentText", [tg.id, "Jawaban draf saya"])
+    const tgAttempt = await one(`select id, status, "submissionText" from attempts where "examId"=$1`, [tg.id])
+    check("Simpan otomatis teks → draf dibuat", r?.ok && tgAttempt?.status === "IN_PROGRESS" && tgAttempt.submissionText === "Jawaban draf saya", JSON.stringify([r, tgAttempt]))
+
+    const up = (jar, name, content) => act(jar, T(tg.id), AS, "uploadAssignmentFile", [tg.id, PREV, form({ file: new File([content], name) })])
+    r = await up(p5, "laporan.pdf", "<html><script>alert(1)</script></html>")
+    check("HTML yang dinamai .pdf → ditolak (cek isi berkas)", r?.ok === false && !!r.fieldErrors?.file, JSON.stringify(r))
+    const PDF = "%PDF-1.4\n% E2E laporan\n%%EOF\n"
+    r = await up(p5, "../../etc/laporan akhir.pdf", PDF)
+    const tf = await one(`select id, "fileName", "storageKey", "mimeType" from submission_files where "attemptId"=$1`, [tgAttempt.id])
+    const onDisk = tf && fs.existsSync(`${ROOT}/uploads/${tf.storageKey}`) ? fs.readFileSync(`${ROOT}/uploads/${tf.storageKey}`, "utf8") : null
+    check("Unggah PDF → nama dibersihkan, path acak di uploads/, isi utuh", r?.ok && tf?.fileName === "laporan akhir.pdf" && tf.mimeType === "application/pdf" && new RegExp(`^submissions/${tg.id}/${tgAttempt.id}/[0-9a-f]{32}$`).test(tf.storageKey) && onDisk === PDF, JSON.stringify([r, tf]))
+
+    const dl = (jar) => fetch(`${BASE}/berkas/${tf.id}`, { headers: { cookie: jar?.header ?? "" }, redirect: "manual" })
+    const own = await dl(p5)
+    check("Unduh oleh pemilik: lampiran, CSP sandbox, isi sama", own.status === 200 && /^attachment;/.test(own.headers.get("content-disposition")) && /sandbox/.test(own.headers.get("content-security-policy")) && (await own.text()) === PDF)
+    const [other, teacher, otherTeacher, anon] = await Promise.all([dl(p1), dl(rina), dl(budi), dl(null)])
+    check("Izin unduh: mahasiswa lain 404 · pengajar ujian 200 · pengajar lain 404 · tanpa login 401", other.status === 404 && teacher.status === 200 && otherTeacher.status === 404 && anon.status === 401, [other.status, teacher.status, otherTeacher.status, anon.status].join())
+
+    r = await act(p5, T(tg.id), AS, "submitAssignment", [tg.id, "Jawaban final"])
+    let tgA = await one(`select status, "isLate", "submissionText" from attempts where id=$1`, [tgAttempt.id])
+    check("Serahkan setelah tenggat → diterima & ditandai terlambat", r?.ok && tgA.status === "SUBMITTED" && tgA.isLate === true && tgA.submissionText === "Jawaban final", JSON.stringify([r, tgA]))
+    check("Setelah diserahkan: unggah ditolak, finishAttempts pengawas ditolak", (await up(p5, "b.pdf", PDF))?.ok === false && (await act(rina, `/ujian-kelola/${tg.id}`, K, "finishAttempts", [tg.id, "all"]))?.ok === false)
+    r = await act(p5, T(tg.id), AS, "unsubmitAssignment", [tg.id])
+    const rm = await act(p5, T(tg.id), AS, "removeAssignmentFile", [tg.id, tf.id])
+    check("Batalkan pengiriman → draf lagi; hapus berkas → hilang dari DB & disk", r?.ok && rm?.ok && !(await one(`select 1 from submission_files where id=$1`, [tf.id])) && !fs.existsSync(`${ROOT}/uploads/${tf.storageKey}`), JSON.stringify([r, rm]))
+    await up(p5, "laporan-v2.pdf", PDF)
+    await act(p5, T(tg.id), AS, "submitAssignment", [tg.id, "Jawaban final v2"])
+    check("IDOR: peserta lain menghapus berkas orang → ditolak", (await act(p1, T(tg.id), AS, "removeAssignmentFile", [tg.id, (await one(`select id from submission_files where "attemptId"=$1`, [tgAttempt.id])).id]))?.ok === false)
+
+    r = await act(rina, `/ujian-kelola/${tg.id}/koreksi/${tgAttempt.id}`, K, "gradeAssignment", [tgAttempt.id, PREV, form({ points: "25", feedback: "" })])
+    check("Poin melebihi maksimal → ditolak", r?.ok === false && !!r.fieldErrors?.points, JSON.stringify(r))
+    check("Pengajar lain menilai → ditolak", (await act(budi, `/ujian-kelola/${tg.id}/koreksi/${tgAttempt.id}`, K, "gradeAssignment", [tgAttempt.id, PREV, form({ points: "1" })]))?.ok === false)
+    const gradePage = await html(rina, `/ujian-kelola/${tg.id}/koreksi/${tgAttempt.id}`)
+    check("Halaman penilaian Tugas: jawaban, berkas, terlambat", ["Jawaban final v2", "laporan-v2.pdf", "Terlambat"].every((t) => gradePage.includes(t)))
+    r = await act(rina, `/ujian-kelola/${tg.id}/koreksi/${tgAttempt.id}`, K, "gradeAssignment", [tgAttempt.id, PREV, form({ points: "17,5", feedback: "Bagus, rapikan daftar pustaka." })])
+    tgA = await one(`select status, score from attempts where id=$1`, [tgAttempt.id])
+    check("Nilai 17,5 / 20 → skor 87,5 & GRADED", r?.ok && tgA.status === "GRADED" && tgA.score === 87.5, JSON.stringify([r, tgA]))
+    const tgDone = await html(p5, `/ujian/${tg.id}`)
+    check("Peserta melihat nilai & komentar; tidak bisa membatalkan setelah dinilai", tgDone.includes("17.5") && tgDone.includes("Bagus, rapikan daftar pustaka.") && (await act(p5, T(tg.id), AS, "unsubmitAssignment", [tg.id]))?.ok === false)
+    check("Rekap pengajar: Terlambat & nilai", (await html(rina, `/ujian-kelola/${tg.id}?tab=peserta`)).includes("Terlambat"))
   } finally {
     if (authBefore !== undefined) {
       await act(sa, "/admin/fitur", F, "resetFeature", ["kelas.gabung"])
@@ -513,6 +568,7 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
       for (const f of savedFeatures.features) if (!f.enabled) await act(sa, "/admin/fitur", F, "setFeatureGlobal", [f.key, false])
     }
     await pg.query(`delete from groups where name like 'E2E%'`)
+    for (const f of await all(`select sf."storageKey" from submission_files sf join attempts a on a.id=sf."attemptId" join exams e on e.id=a."examId" where e.title like 'E2E%'`)) fs.rmSync(`${ROOT}/uploads/${f.storageKey}`, { force: true })
     await pg.query(`delete from exams where title like 'E2E%'`)
     await pg.query(`delete from questions where prompt like 'E2E%'`)
     await pg.query(`delete from exam_categories where name like 'E2E%'`)

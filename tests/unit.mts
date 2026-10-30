@@ -111,5 +111,15 @@ check("Kode: tanpa karakter ambigu di alfabet (31 karakter)", CODE_ALPHABET.leng
 check("Kode: injeksi SQL/HTML ditolak", normalizeCode("' OR 1=1--") === null && normalizeCode("<script>") === null)
 check("Kode: tampilan berkelompok & input dibersihkan", formatCode("K7MQX2P") === "K7M-QX2P" && sanitizeCodeInput("k7m-qx2p!@#") === "K7M-QX2P")
 
+// ---- Berkas jawaban Tugas ----
+const { sniffSubmission, safeFileName, attachmentHeader } = await import(src("submissions/files.ts"))
+const enc = (s: string) => new TextEncoder().encode(s)
+const PK = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0, 0])
+check("Berkas: PDF/DOCX/PNG dikenali dari isi + ekstensi", sniffSubmission(enc("%PDF-1.7 ..."), "laporan.pdf") === "application/pdf" && sniffSubmission(PK, "tugas.DOCX")?.includes("wordprocessingml") && sniffSubmission(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), "a.png") === "image/png")
+check("Berkas: HTML/SVG/EXE menyamar sebagai .pdf/.docx ditolak", sniffSubmission(enc("<html><script>alert(1)</script>"), "x.pdf") === null && sniffSubmission(enc("<svg onload=alert(1)>"), "x.png") === null && sniffSubmission(enc("MZ\x90\x00"), "x.docx") === null)
+check("Berkas: isi & ekstensi tidak cocok ditolak (PDF bernama .png, ZIP bernama .exe)", sniffSubmission(enc("%PDF-1.4"), "x.png") === null && sniffSubmission(PK, "x.exe") === null)
+check("Berkas: nama dibersihkan dari path & karakter berbahaya", safeFileName("../../etc/passwd.pdf") === "passwd.pdf" && safeFileName('C:\\Users\\a\\"tugas"<1>.pdf') === "tugas1.pdf" && safeFileName("..") === "berkas" && safeFileName("x".repeat(300) + ".pdf").length <= 121 && safeFileName("x".repeat(300) + ".pdf").endsWith(".pdf"))
+check("Berkas: Content-Disposition attachment aman untuk nama non-ASCII", attachmentHeader('Laporan "akhir" é.pdf') === `attachment; filename="Laporan _akhir_ _.pdf"; filename*=UTF-8''Laporan%20%22akhir%22%20%C3%A9.pdf`)
+
 console.log(`\n${pass} lulus, ${fail} gagal`)
 if (fail) process.exit(1)

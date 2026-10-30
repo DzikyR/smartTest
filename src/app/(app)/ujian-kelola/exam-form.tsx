@@ -19,6 +19,7 @@ export type ExamDefaults = {
   workType: "QUIZ" | "QUESTION" | "ASSIGNMENT"
   dueAt: Date | null
   timed: boolean
+  maxPoints: number | null
   instructions: string | null
   durationMinutes: number
   startAt: Date | null
@@ -82,7 +83,8 @@ export function ExamForm({
   const initialCategory = categories.find((c) => c.id === defaults?.categoryId) ?? (defaults ? undefined : categories.find((c) => c.kind === "KUIS"))
   const [categoryId, setCategoryId] = useState(initialCategory?.id ?? "")
   const kind: ExamKind = categories.find((c) => c.id === categoryId)?.kind ?? defaults?.kind ?? "KUIS"
-  const [workType, setWorkType] = useState(defaults?.workType === "QUESTION" ? "QUESTION" : "QUIZ")
+  const [workType, setWorkType] = useState<string>(defaults?.workType ?? "QUIZ")
+  const assignment = workType === "ASSIGNMENT"
   const [untimed, setUntimed] = useState(defaults ? !defaults.timed : false)
   const [openToAll, setOpenToAll] = useState(defaults?.openToAll ?? false)
   // Tingkat pengamanan bawaan: kuis/latihan = tingkat 1, UTS/UAS = tingkat 2 (Safe Exam Browser).
@@ -119,17 +121,23 @@ export function ExamForm({
             value={workType}
             onChange={(e) => {
               setWorkType(e.target.value)
-              if (!editing) setUntimed(e.target.value === "QUESTION")
+              if (!editing) setUntimed(e.target.value !== "QUIZ")
             }}
           >
             <option value="QUIZ">{WORK_TYPE_LABEL.QUIZ} — kumpulan soal (pilihan ganda, isian, esai)</option>
             <option value="QUESTION">{WORK_TYPE_LABEL.QUESTION} — satu soal singkat untuk kelas</option>
+            <option value="ASSIGNMENT">{WORK_TYPE_LABEL.ASSIGNMENT} — instruksi + unggah berkas/jawaban, dinilai manual</option>
           </NativeSelect>
         </FormField>
+        {assignment && (
+          <FormField name="maxPoints" label="Poin maksimal" hint="Mahasiswa menulis jawaban dan/atau mengunggah berkas; Anda memberi poin 0–maks. Tanpa durasi, satu kali pengiriman.">
+            <Input id="maxPoints" name="maxPoints" type="number" inputMode="decimal" min={1} max={1000} step="any" defaultValue={defaults?.maxPoints ?? 100} required />
+          </FormField>
+        )}
         <FormField name="title" label="Judul ujian">
           <Input id="title" name="title" defaultValue={defaults?.title} maxLength={200} required placeholder="mis. UTS Algoritma & Pemrograman" />
         </FormField>
-        <FormField name="instructions" label="Petunjuk pengerjaan (opsional)">
+        <FormField name="instructions" label={assignment ? "Instruksi tugas" : "Petunjuk pengerjaan (opsional)"}>
           <Textarea id="instructions" name="instructions" defaultValue={defaults?.instructions ?? ""} rows={3} maxLength={10_000} />
         </FormField>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

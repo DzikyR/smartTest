@@ -439,6 +439,19 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
     await act(rina, `/kelas/${cls.id}`, KL, "setClassArchived", [cls.id, true])
     check("Kelas diarsipkan → kode menolak anggota baru", /diarsipkan/.test((await join(await login("2401002"), code))?.message ?? ""))
     check("Rekap ujian tetap memuat anggota yang sudah mengerjakan walau kelasnya diarsipkan", (await html(rina, `/ujian-kelola/${exam.id}?tab=peserta`)).includes("Andi Pratama"))
+
+    // Tujuan ujian: pengajar hanya boleh menujukan ujian ke kelasnya sendiri + kelompok administratif (anti-IDOR).
+    const bdSubject = await one(`select id from subjects where code='IF102'`)
+    const targetsOf = async (title) => (await all(`select g.name from exam_groups eg join exams e on e.id=eg."examId" join groups g on g.id=eg."groupId" where e.title=$1 order by 1`, [title])).map((x) => x.name)
+    await act(budi, "/ujian-kelola/baru", K, "createExam", [PREV, form({ ...examForm, subjectId: bdSubject.id, title: "E2E Budi Target", groupId: [cls.id, ifa.id] })])
+    check("Pengajar lain menujukan ujian ke kelas Rina (form dimodifikasi) → kelas itu diabaikan", (await targetsOf("E2E Budi Target")).join() === "IF-1A")
+    check("Form ujian pengajar lain tidak menampilkan kelas Rina", !(await html(budi, "/ujian-kelola/baru")).includes(CLS.name))
+    await act(rina, `/kelas/${cls.id}`, KL, "setClassArchived", [cls.id, false])
+    await act(rina, "/ujian-kelola/baru", K, "createExam", [PREV, form({ ...examForm, title: "E2E Rina Target", groupId: [cls.id] })])
+    const rinaTargets = await targetsOf("E2E Rina Target")
+    check("Pemilik kelas menujukan ujian ke kelasnya → berhasil", rinaTargets.join() === CLS.name, rinaTargets)
+    const newForm = await html(rina, `/ujian-kelola/baru?kelas=${cls.id}`)
+    check("Buat ujian dari halaman kelas (?kelas=) → kelas tercentang otomatis", (newForm.match(new RegExp(`<input[^>]*value="${cls.id}"[^>]*>`))?.[0] ?? "").includes("checked"), newForm.match(new RegExp(`<input[^>]*value="${cls.id}"[^>]*>`))?.[0] ?? "kelas tidak ada di form")
   } finally {
     if (authBefore !== undefined) {
       await act(sa, "/admin/fitur", F, "resetFeature", ["kelas.gabung"])

@@ -13,6 +13,16 @@ export function managedClasses(user: CurrentUser): Prisma.GroupWhereInput {
   return { OR: [{ ownerId: user.id }, { members: { some: { userId: user.id, role: "TEACHER", status: "ACTIVE" } } }] }
 }
 
+/**
+ * Kelas/kelompok yang boleh dijadikan TUJUAN ujian: Admin → semua; Pengajar →
+ * kelas yang ia kelola + kelompok administratif buatan Admin (ownerId kosong).
+ * Mencegah pengajar menujukan ujian ke mahasiswa kelas pengajar lain.
+ */
+export function targetableClasses(user: CurrentUser): Prisma.GroupWhereInput {
+  if (isAdmin(user)) return {}
+  return { OR: [{ ownerId: null }, managedClasses(user)] }
+}
+
 export async function getManagedClass(user: CurrentUser, id: string) {
   return db.group.findFirst({
     where: { AND: [{ id }, managedClasses(user)] },

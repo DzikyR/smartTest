@@ -9,6 +9,7 @@ import { audit } from "@/lib/audit"
 import { requireRole, type CurrentUser } from "@/lib/auth/dal"
 import { STAFF } from "@/lib/auth/roles"
 import { canManageSubject, getManagedExam, managedSubjects } from "@/lib/data/access"
+import { targetableClasses } from "@/lib/classes/access"
 import { appendExamQuestions, editableExam } from "@/lib/data/exam-questions"
 import { fail, formObject, ok, zodFail, type ActionResult } from "@/lib/action-result"
 import { checkbox, optionalLocalDateTime, optionalNumber, optionalText } from "@/lib/validation"
@@ -66,13 +67,16 @@ const examSchema = z
     if (rulesError) ctx.addIssue({ code: "custom", path: ["rules"], message: rulesError })
   })
 
-async function parseExam(user: CurrentUser, formData: FormData) {
+/** `examId` saat mengubah: kelas yang sudah terpasang di ujian ini tetap boleh dipertahankan. */
+async function parseExam(user: CurrentUser, formData: FormData, examId?: string) {
   const parsed = examSchema.safeParse(formObject(formData))
   if (!parsed.success) return { error: zodFail(parsed.error) }
   const { hideScore, ...v } = parsed.data
   if (!(await canManageSubject(user, v.subjectId))) return { error: fail("Mata uji tidak valid.", { subjectId: "Pilih mata uji yang Anda kelola" }) }
   const groupIds = [...new Set(formData.getAll("groupId").map(String).filter(Boolean))]
-  const groups = v.openToAll ? [] : (await db.group.findMany({ where: { id: { in: groupIds } }, select: { id: true } })).map((g) => g.id)
+  // Hanya kelas yang boleh dituju actor; ID lain (mis. form dimodifikasi) diabaikan.
+  const allowed = examId ? { OR: [targetableClasses(user), { exams: { some: { examId } } }] } : targetableClasses(user)
+  const groups = v.openToAll ? [] : (await db.group.findMany({ where: { AND: [{ id: { in: groupIds } }, allowed] }, select: { id: true } })).map((g) => g.id)
   return { data: { ...v, showScore: !hideScore }, groups }
 }
 
@@ -92,7 +96,7 @@ export async function updateExam(examId: string, _prev: ActionResult, formData: 
   const user = await requireRole(...STAFF)
   const exam = await getManagedExam(user, examId)
   if (!exam) return fail(DENIED)
-  const { data, groups, error } = await parseExam(user, formData)
+  const { data, groups, error } = await parseExam(user, formData, examId)
   if (error) return error
   if (data.subjectId !== exam.subjectId && exam._count.attempts > 0) return fail("Mata uji tidak dapat diganti setelah ada peserta.", { subjectId: "Terkunci" })
   await db.$transaction([

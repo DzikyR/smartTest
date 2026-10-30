@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
 import { db } from "@/lib/db"
-import { ACTIVE_STUDENT } from "@/lib/classes/access"
+import { ACTIVE_STUDENT, targetableClasses } from "@/lib/classes/access"
 import { requireRole } from "@/lib/auth/dal"
 import { STAFF } from "@/lib/auth/roles"
 import { listManagedSubjects } from "@/lib/data/access"
@@ -18,7 +18,7 @@ export default async function NewExamPage({ searchParams }: PageProps<"/ujian-ke
   const sp = await searchParams
   const [subjects, groups] = await Promise.all([
     listManagedSubjects(user),
-    db.group.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" }, select: { id: true, name: true, _count: { select: { members: { where: ACTIVE_STUDENT } } } } }),
+    db.group.findMany({ where: { AND: [{ archivedAt: null }, targetableClasses(user)] }, orderBy: { name: "asc" }, select: { id: true, name: true, _count: { select: { members: { where: ACTIVE_STUDENT } } } } }),
   ])
   if (subjects.length === 0) return <EmptyState title="Belum ada mata uji yang Anda kelola" description="Admin perlu menambahkan mata uji dan menetapkan Anda sebagai pengelola." />
   const pre = subjects.find((s) => s.id === str(sp.subject))

@@ -28,7 +28,7 @@ async function withFallback<T>(load: () => Promise<T>, fallback: T, what: string
 
 async function loadTheme(): Promise<SiteTheme> {
   "use cache"
-  cacheLife("hours")
+  cacheLife("minutes") // revalidasi 1 menit: invalidasi updateTag tidak bertahan saat server restart, ini batas basinya
   cacheTag(SITE_TAGS.theme)
   const row = await db.siteSetting.findUnique({ where: { key: "theme" }, select: { value: true } })
   return parseTheme(row?.value)
@@ -38,7 +38,7 @@ export type Branding = { logoLight: string | null; logoDark: string | null; favi
 
 async function loadBranding(): Promise<Branding> {
   "use cache"
-  cacheLife("hours")
+  cacheLife("minutes") // revalidasi 1 menit: invalidasi updateTag tidak bertahan saat server restart, ini batas basinya
   cacheTag(SITE_TAGS.branding)
   const rows = await db.brandAsset.findMany({ select: { kind: true, sha256: true } })
   const url = (kind: keyof typeof BRAND_ASSETS) => {
@@ -50,7 +50,7 @@ async function loadBranding(): Promise<Branding> {
 
 async function loadTexts(): Promise<Texts> {
   "use cache"
-  cacheLife("hours")
+  cacheLife("minutes") // revalidasi 1 menit: invalidasi updateTag tidak bertahan saat server restart, ini batas basinya
   cacheTag(SITE_TAGS.texts)
   const rows = await db.contentText.findMany({ select: { key: true, value: true } })
   return mergeTexts(Object.fromEntries(rows.map((r) => [r.key, r.value])))
@@ -62,7 +62,7 @@ const DEFAULT_AUTH: AuthSettings = { registrationOpen: true, googleLogin: true }
 
 async function loadAuthSettings(): Promise<AuthSettings> {
   "use cache"
-  cacheLife("hours")
+  cacheLife("minutes") // revalidasi 1 menit: invalidasi updateTag tidak bertahan saat server restart, ini batas basinya
   cacheTag(SITE_TAGS.auth)
   const row = await db.siteSetting.findUnique({ where: { key: "auth" }, select: { value: true } })
   const v = (row?.value ?? {}) as Partial<AuthSettings>

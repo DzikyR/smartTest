@@ -3,13 +3,19 @@ import { db } from "@/lib/db"
 import { attemptDeadline, isPastDeadline } from "@/lib/exam/attempt"
 import { round2 } from "@/lib/exam/grading"
 
-/** Peserta yang berhak mengikuti ujian (semua peserta aktif, atau anggota kelompok terpilih). */
+/**
+ * Peserta ujian: semua peserta aktif, atau anggota AKTIF kelompok/kelas terpilih —
+ * ditambah siapa pun yang sudah punya percobaan (mis. dikeluarkan dari kelas setelah
+ * mengerjakan), agar nilainya tetap muncul di rekap.
+ */
 export async function examParticipants(exam: { id: string; openToAll: boolean }) {
   return db.user.findMany({
     where: {
       role: "PESERTA",
       isActive: true,
-      ...(exam.openToAll ? {} : { memberships: { some: { group: { exams: { some: { examId: exam.id } } } } } }),
+      ...(exam.openToAll
+        ? {}
+        : { OR: [{ memberships: { some: { status: "ACTIVE", group: { exams: { some: { examId: exam.id } } } } } }, { attempts: { some: { examId: exam.id } } }] }),
     },
     orderBy: [{ name: "asc" }],
     select: { id: true, name: true, username: true, email: true },

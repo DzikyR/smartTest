@@ -3,6 +3,7 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { ArrowLeft, Pencil, Trash2, UserMinus, UserPlus } from "lucide-react"
 import { db } from "@/lib/db"
+import { ACTIVE_STUDENT } from "@/lib/classes/access"
 import { requireFeature } from "@/lib/features/access"
 import { ADMINS } from "@/lib/auth/roles"
 import { initials } from "@/lib/format"
@@ -25,7 +26,7 @@ export default async function GroupDetailPage({ params }: PageProps<"/admin/kelo
   const group = await db.group.findUnique({
     where: { id },
     include: {
-      members: { orderBy: { user: { name: "asc" } }, select: { user: { select: { id: true, name: true, email: true, username: true, isActive: true } } } },
+      members: { where: ACTIVE_STUDENT, orderBy: { user: { name: "asc" } }, select: { user: { select: { id: true, name: true, email: true, username: true, isActive: true } } } },
       exams: { select: { exam: { select: { id: true, title: true } } } },
     },
   })

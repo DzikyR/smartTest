@@ -53,7 +53,7 @@ export default async function UsersPage({ searchParams }: PageProps<"/admin/peng
       orderBy: [{ role: "asc" }, { name: "asc" }],
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
-      select: { id: true, name: true, email: true, username: true, role: true, isActive: true, lastLoginAt: true, memberships: { select: { group: { select: { name: true } } } } },
+      select: { id: true, name: true, email: true, username: true, role: true, isActive: true, lastLoginAt: true, memberships: { where: { status: "ACTIVE" }, select: { group: { select: { name: true } } } } },
     }),
     db.group.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     db.user.groupBy({ by: ["role"], _count: true }),

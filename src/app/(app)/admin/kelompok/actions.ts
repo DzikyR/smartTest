@@ -79,9 +79,14 @@ export async function addMembers(groupId: string, _prev: ActionResult, formData:
   })
   const found = new Set(users.flatMap((u) => [u.email, u.username ?? ""]))
   const missing = list.filter((l) => !found.has(l))
-  const result = await db.groupMember.createMany({ data: users.map((u) => ({ groupId, userId: u.id })), skipDuplicates: true })
+  const userIds = users.map((u) => u.id)
+  const [created, restored] = await db.$transaction([
+    db.groupMember.createMany({ data: userIds.map((userId) => ({ groupId, userId })), skipDuplicates: true }),
+    // Ditambahkan Admin = keputusan sadar: pulihkan yang pernah dikeluarkan/menunggu (termasuk yang diblokir).
+    db.groupMember.updateMany({ where: { groupId, userId: { in: userIds }, role: "STUDENT", status: { not: "ACTIVE" } }, data: { status: "ACTIVE", blockRejoin: false, removedAt: null } }),
+  ])
   refresh()
-  return ok(`${result.count} peserta ditambahkan${missing.length ? `; tidak ditemukan: ${missing.slice(0, 5).join(", ")}${missing.length > 5 ? "…" : ""}` : ""}.`)
+  return ok(`${created.count + restored.count} peserta ditambahkan${missing.length ? `; tidak ditemukan: ${missing.slice(0, 5).join(", ")}${missing.length > 5 ? "…" : ""}` : ""}.`)
 }
 
 export async function removeMember(groupId: string, userId: string): Promise<ActionResult> {

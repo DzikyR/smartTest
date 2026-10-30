@@ -3,6 +3,7 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { ArrowLeft } from "lucide-react"
 import { db } from "@/lib/db"
+import { ACTIVE_STUDENT } from "@/lib/classes/access"
 import { requireRole } from "@/lib/auth/dal"
 import { STAFF } from "@/lib/auth/roles"
 import { getManagedExam, listManagedSubjects } from "@/lib/data/access"
@@ -20,7 +21,12 @@ export default async function EditExamPage({ params }: PageProps<"/ujian-kelola/
   if (!exam) notFound()
   const [subjects, groups] = await Promise.all([
     listManagedSubjects(user),
-    db.group.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, _count: { select: { members: true } } } }),
+    db.group.findMany({
+      // Kelas arsip disembunyikan, kecuali sudah dipilih untuk ujian ini.
+      where: { OR: [{ archivedAt: null }, { exams: { some: { examId: id } } }] },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, _count: { select: { members: { where: ACTIVE_STUDENT } } } },
+    }),
   ])
 
   return (

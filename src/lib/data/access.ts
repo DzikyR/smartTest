@@ -48,7 +48,8 @@ export function visibleExams(user: CurrentUser) {
   return {
     publishedAt: { not: null },
     subject: { isActive: true },
-    OR: [{ openToAll: true }, { groups: { some: { group: { members: { some: { userId: user.id } } } } } }],
+    // Hanya keanggotaan ACTIVE: peserta PENDING (menunggu persetujuan) / REMOVED (dikeluarkan) tidak melihat ujian kelas.
+    OR: [{ openToAll: true }, { groups: { some: { group: { members: { some: { userId: user.id, status: "ACTIVE" as const } } } } } }],
   }
 }
 

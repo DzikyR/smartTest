@@ -5,5 +5,5 @@ import { authConfig } from "@/auth.config"
 export default NextAuth(authConfig).auth
 
 export const config = {
-  matcher: ["/login", "/daftar", "/lupa-password", "/dashboard/:path*", "/admin/:path*", "/mata-uji/:path*", "/bank-soal/:path*", "/ujian-kelola/:path*", "/ujian/:path*", "/hasil/:path*", "/profil/:path*"],
+  matcher: ["/login", "/daftar", "/lupa-password", "/dashboard/:path*", "/kelas/:path*", "/gabung", "/admin/:path*", "/mata-uji/:path*", "/bank-soal/:path*", "/ujian-kelola/:path*", "/ujian/:path*", "/hasil/:path*", "/profil/:path*"],
 }

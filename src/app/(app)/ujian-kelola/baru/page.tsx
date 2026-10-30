@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
 import { db } from "@/lib/db"
+import { ACTIVE_STUDENT } from "@/lib/classes/access"
 import { requireRole } from "@/lib/auth/dal"
 import { STAFF } from "@/lib/auth/roles"
 import { listManagedSubjects } from "@/lib/data/access"
@@ -17,7 +18,7 @@ export default async function NewExamPage({ searchParams }: PageProps<"/ujian-ke
   const sp = await searchParams
   const [subjects, groups] = await Promise.all([
     listManagedSubjects(user),
-    db.group.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, _count: { select: { members: true } } } }),
+    db.group.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" }, select: { id: true, name: true, _count: { select: { members: { where: ACTIVE_STUDENT } } } } }),
   ])
   if (subjects.length === 0) return <EmptyState title="Belum ada mata uji yang Anda kelola" description="Admin perlu menambahkan mata uji dan menetapkan Anda sebagai pengelola." />
   const pre = subjects.find((s) => s.id === str(sp.subject))
@@ -33,6 +34,7 @@ export default async function NewExamPage({ searchParams }: PageProps<"/ujian-ke
         submitLabel="Simpan & isi soal"
         subjects={(pre ? [pre, ...subjects.filter((s) => s !== pre)] : subjects).map((s) => ({ id: s.id, label: `${s.code} · ${s.name}` }))}
         groups={groups.map((g) => ({ id: g.id, name: g.name, members: g._count.members }))}
+        preselectGroupId={str(sp.kelas)}
       />
     </div>
   )

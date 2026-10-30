@@ -54,6 +54,34 @@ enum AttemptStatus {
   GRADED
 }
 
+/// Peran di dalam kelas (berbeda dengan role global)
+enum ClassRole {
+  TEACHER
+  STUDENT
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  PENDING // menunggu persetujuan pengajar
+  REMOVED // dikeluarkan (riwayat nilai tetap)
+}
+
+enum JoinPolicy {
+  AUTO
+  APPROVAL
+}
+
+enum AccessCodeType {
+  CLASS
+  SESSION // ujian publik (Fase 4)
+}
+
+enum CodeStatus {
+  ACTIVE
+  DISABLED // dijeda pengajar
+  REVOKED // diganti (mis. bocor) — tidak berlaku lagi
+}
+
 enum LogSeverity {
   INFO
   WARNING
@@ -93,6 +121,8 @@ model User {
   attemptsGraded Attempt[]         @relation("AttemptGrader")
   auditLogs      AuditLog[]
   resetTokens    PasswordResetToken[]
+  ownedGroups    Group[]              @relation("GroupOwner")
+  accessCodes    AccessCode[]
 
   @@index([role])
   @@map("users")
@@ -135,6 +165,7 @@ model Subject {
   lecturers SubjectLecturer[]
   questions Question[]
   exams     Exam[]
+  groups    Group[]
 
   @@map("subjects")
 }
@@ -151,27 +182,56 @@ model SubjectLecturer {
   @@map("subject_lecturers")
 }
 
-/// Kelompok peserta, mis. kelas "IF-2A" atau "Gelombang 1".
+/// Kelompok peserta = Kelas. Dibuat Admin (ownerId kosong, kelompok administratif)
+/// atau oleh Pengajar (ownerId terisi) yang membagikan kode kelas ke mahasiswa.
 model Group {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  description String?
-  createdAt   DateTime @default(now())
+  id               String     @id @default(cuid())
+  name             String     @unique
+  description      String?
+  createdAt        DateTime   @default(now())
+  // --- Kelas (Fase 2) — semua opsional/berdefault agar kelompok lama tetap sah ---
+  /// Pengajar pemilik; NULL = kelompok administratif buatan Admin
+  ownerId          String?
+  owner            User?      @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  /// Mata uji (sumber bank soal) kelas ini
+  subjectId        String?
+  subject          Subject?   @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  /// mis. "2026/2027 Ganjil"
+  term             String?
+  joinPolicy       JoinPolicy @default(AUTO)
+  /// Kunci kelas: kode apa pun ditolak, tidak ada anggota baru
+  joinLocked       Boolean    @default(false)
+  /// Wajib NIM (username) sebelum bergabung lewat kode
+  requireStudentId Boolean    @default(true)
+  archivedAt       DateTime?
 
   members GroupMember[]
   exams   ExamGroup[]
+  codes   AccessCode[]
+
+  @@index([ownerId])
 
   @@map("groups")
 }
 
 model GroupMember {
-  groupId String
-  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  userId  String
-  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  groupId     String
+  group       Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // --- Kelas (Fase 2): baris lama otomatis = siswa aktif ---
+  role        ClassRole        @default(STUDENT)
+  status      EnrollmentStatus @default(ACTIVE)
+  joinedAt    DateTime         @default(now())
+  /// AccessCode yang dipakai bergabung (kosong = ditambahkan admin/pengajar)
+  joinedVia   String?
+  removedAt   DateTime?
+  /// Dikeluarkan dan tidak boleh bergabung lagi lewat kode
+  blockRejoin Boolean          @default(false)
 
   @@id([groupId, userId])
   @@index([userId])
+  @@index([groupId, status])
   @@map("group_members")
 }
 
@@ -400,6 +460,33 @@ model BrandAsset {
 // -----------------------------------------------------------------------------
 //  RESET PASSWORD — token acak sekali pakai (hanya hash yang disimpan)
 // -----------------------------------------------------------------------------
+
+// -----------------------------------------------------------------------------
+//  KODE AKSES (Class Code) — satu tabel untuk kode kelas & kode sesi ujian
+//
+//  Tipe ditentukan kolom `type`, bukan dari bentuk kodenya. CHECK constraint &
+//  "satu kode aktif per kelas" ditambahkan lewat SQL di migrasi.
+// -----------------------------------------------------------------------------
+
+model AccessCode {
+  id          String         @id @default(cuid())
+  /// HURUF BESAR ternormalisasi, alfabet tanpa 0/O/1/I/L (lihat src/lib/classes/code.ts)
+  code        String         @unique
+  type        AccessCodeType
+  groupId     String?
+  group       Group?         @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  status      CodeStatus     @default(ACTIVE)
+  expiresAt   DateTime?
+  maxUses     Int?
+  usesCount   Int            @default(0)
+  createdById String?
+  createdBy   User?          @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime       @default(now())
+  revokedAt   DateTime?
+
+  @@index([groupId])
+  @@map("access_codes")
+}
 
 model PasswordResetToken {
   id        String    @id @default(cuid())

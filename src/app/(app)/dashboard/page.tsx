@@ -5,6 +5,7 @@ import { db } from "@/lib/db"
 import { isAdmin, requireRole, type CurrentUser } from "@/lib/auth/dal"
 import { managedSubjects } from "@/lib/data/access"
 import { getTexts } from "@/lib/site/config"
+import { JoinClassDialog } from "@/components/classes/join-class"
 import { fill } from "@/content/texts"
 import { enabledFeatures } from "@/lib/features/access"
 import type { FeatureKey } from "@/lib/features/registry"
@@ -234,7 +235,18 @@ async function StaffDashboard({ user }: { user: CurrentUser }) {
 // ---------------------------------------------------------------------------
 
 async function ParticipantDashboard({ user }: { user: CurrentUser }) {
-  const [exams, t] = await Promise.all([participantExams(user), getTexts()])
+  const [exams, t, features, classes] = await Promise.all([
+    participantExams(user),
+    getTexts(),
+    enabledFeatures(user.role),
+    db.groupMember.findMany({
+      where: { userId: user.id, role: "STUDENT", status: { in: ["ACTIVE", "PENDING"] }, group: { archivedAt: null } },
+      orderBy: { joinedAt: "desc" },
+      take: 6,
+      select: { status: true, group: { select: { id: true, name: true, subject: { select: { code: true } } } } },
+    }),
+  ])
+  const canJoin = features.includes("kelas.gabung")
   const now = exams.filter((e) => e.state === "running" || e.state === "available")
   const upcoming = exams.filter((e) => e.state === "upcoming")
   const scored = exams.filter((e) => e.best !== null)
@@ -246,13 +258,39 @@ async function ParticipantDashboard({ user }: { user: CurrentUser }) {
         name={user.name}
         subtitle={now.length ? fill(t["dashboard.participant.available"], { n: now.length }) : t["dashboard.participant.idle"]}
         action={
-          now.length > 0 && (
+          now.length > 0 ? (
             <Link href={`/ujian/${now[0].id}`} className={buttonVariants({ className: "rounded-xl bg-white text-primary hover:bg-white/90" })}>
               <MonitorCheck aria-hidden /> {t["dashboard.participant.cta"]}
             </Link>
+          ) : (
+            canJoin && <JoinClassDialog className="rounded-xl bg-white text-primary hover:bg-white/90" />
           )
         }
       />
+      <section className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold">Kelas Saya</h2>
+          <div className="flex items-center gap-3">
+            {canJoin && now.length > 0 && <JoinClassDialog className="h-8 rounded-lg" label="Gabung" />}
+            <Link href="/kelas" className="text-sm font-medium text-primary hover:underline">
+              Lihat semua
+            </Link>
+          </div>
+        </div>
+        {classes.length === 0 ? (
+          <p className="rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Belum mengikuti kelas. Minta kode kelas ke pengajar{canJoin ? ", lalu tekan “Gabung kelas”" : ""}.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {classes.map(({ status, group: g }) => (
+              <Link key={g.id} href={`/kelas/${g.id}`} className="flex items-center gap-2 rounded-xl bg-card px-3 py-2 text-sm font-medium ring-1 ring-border/60 hover:ring-primary/40">
+                {g.subject && <span className="font-mono text-xs text-muted-foreground">{g.subject.code}</span>}
+                {g.name}
+                {status === "PENDING" && <span className="text-xs font-normal text-muted-foreground">· menunggu</span>}
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard label="Bisa dikerjakan" value={now.length} icon={<MonitorCheck />} tint="green" />
         <StatCard label="Akan datang" value={upcoming.length} icon={<CalendarClock />} tint="sky" />

@@ -7,6 +7,18 @@ import type { Role } from "@/lib/auth/roles"
  * Fitur `critical` meminta konfirmasi sebelum dimatikan.
  */
 export const FEATURES = {
+  "kelas.kelola": {
+    name: "Membuat & Mengelola Kelas",
+    description: "Pengajar membuat kelas, membagikan kode kelas, dan mengelola anggota.",
+    category: "Kelas",
+    roles: ["ADMIN", "DOSEN"],
+  },
+  "kelas.gabung": {
+    name: "Bergabung dengan Kode Kelas",
+    description: "Peserta masuk ke kelas memakai kode dari pengajar. Anggota yang sudah bergabung tetap bisa membuka kelasnya.",
+    category: "Kelas",
+    roles: ["PESERTA"],
+  },
   "bank-soal.impor": {
     name: "Impor Soal Word/Excel",
     description: "Halaman impor, pratinjau & simpan impor, unduh templat soal.",

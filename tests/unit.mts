@@ -103,5 +103,13 @@ check("Menu: label ubahan dipakai, kosong → bawaan, fitur nonaktif → menu hi
 const saItems = (navFor("SUPER_ADMIN", [], {}) as NavOut).flatMap((s) => s.items).filter((i) => ["/admin/fitur", "/admin/situs", "/admin/log"].includes(i.href))
 check("Menu: item khusus Super Admin tidak bisa diganti labelnya", saItems.length === 3 && saItems.every((i) => !i.textKey))
 
+// ---- Kode kelas (Class Code) ----
+const { normalizeCode, formatCode, sanitizeCodeInput, CODE_ALPHABET } = await import(src("classes/code-format.ts"))
+check("Kode: huruf kecil, spasi & strip dinormalisasi", normalizeCode(" k7m-qx2p ") === "K7MQX2P" && normalizeCode("K7M QX2P") === "K7MQX2P")
+check("Kode: karakter ambigu (0/O/1/I/L) & panjang salah ditolak sebelum ke DB", [normalizeCode("K7MQX2O"), normalizeCode("K7M0X2P"), normalizeCode("ABC12"), normalizeCode("ABCDEFGHJ"), normalizeCode("ILLEGAL"), normalizeCode(42), normalizeCode("x".repeat(500))].every((v) => v === null))
+check("Kode: tanpa karakter ambigu di alfabet (31 karakter)", CODE_ALPHABET.length === 31 && !/[01OIL]/.test(CODE_ALPHABET))
+check("Kode: injeksi SQL/HTML ditolak", normalizeCode("' OR 1=1--") === null && normalizeCode("<script>") === null)
+check("Kode: tampilan berkelompok & input dibersihkan", formatCode("K7MQX2P") === "K7M-QX2P" && sanitizeCodeInput("k7m-qx2p!@#") === "K7M-QX2P")
+
 console.log(`\n${pass} lulus, ${fail} gagal`)
 if (fail) process.exit(1)

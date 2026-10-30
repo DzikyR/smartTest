@@ -5,10 +5,10 @@ import { examWindow, visibleExams } from "./access"
 
 export type ParticipantExamState = "running" | "available" | "upcoming" | "done" | "missed"
 
-/** Ujian yang terlihat oleh peserta beserta status pengerjaannya. */
-export async function participantExams(user: CurrentUser) {
+/** Ujian yang terlihat oleh peserta beserta status pengerjaannya (opsional: hanya yang ditujukan ke satu kelas). */
+export async function participantExams(user: CurrentUser, filter: { groupId?: string } = {}) {
   const exams = await db.exam.findMany({
-    where: visibleExams(user),
+    where: { AND: [visibleExams(user), filter.groupId ? { groups: { some: { groupId: filter.groupId } } } : {}] },
     orderBy: [{ startAt: { sort: "asc", nulls: "first" } }, { createdAt: "desc" }],
     select: {
       id: true,

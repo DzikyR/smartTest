@@ -355,8 +355,93 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
     r = await act(sa, "/admin/pengguna", U, "deleteUsers", [{ all: true, q: "e2egen" }, 3])
     check("Hapus semua hasil filter → 3 akun terhapus & tercatat CRITICAL", r?.ok && (await one(`select count(*)::int n from users where username like 'e2egen%'`)).n === 0 && !!(await one(`select 1 from audit_logs where action='USERS_DELETED' and severity='CRITICAL' and metadata->>'count'='3'`)), JSON.stringify(r))
     check("Label role DOSEN tampil sebagai 'Pengajar'", (await html(admin, "/admin/pengguna?role=dosen")).includes("Pengajar ("))
+    // ---------- Fase 2: Kelas & Class Code ----------
+    const KL = "kelas/actions"
+    const join = (jar, code) => act(jar, "/kelas", KL, "joinClassAction", [code])
+    const codeOf = async (groupId) => (await one(`select code from access_codes where "groupId"=$1 and status <> 'REVOKED' order by "createdAt" desc limit 1`, [groupId]))?.code
+    const memberOf = async (groupId, username) => (await one(`select m.status, m."blockRejoin" from group_members m join users u on u.id=m."userId" where m."groupId"=$1 and u.username=$2`, [groupId, username])) ?? null
+    const CLS = { name: "E2E Kelas Algoritma", subjectId: algo.id, term: "2026/2027 Ganjil", joinPolicy: "AUTO", requireStudentId: "on" }
+
+    r = await act(p1, "/kelas", KL, "createClass", [PREV, form(CLS)])
+    check("Peserta membuat kelas → ditolak", r?.ok !== true && !(await one(`select 1 from groups where name=$1`, [CLS.name])), JSON.stringify(r))
+    r = await act(rina, "/kelas", KL, "createClass", [PREV, form(CLS)])
+    const cls = await one(`select id, "ownerId" from groups where name=$1`, [CLS.name])
+    const rinaId = (await one(`select id from users where username='dosen.rina'`)).id
+    let code = await codeOf(cls?.id)
+    check("Pengajar membuat kelas → kode 7 karakter otomatis (tanpa 0/O/1/I/L)", r?.ok && cls?.ownerId === rinaId && /^[ABCDEFGHJKMNPQRSTUVWXYZ2-9]{7}$/.test(code ?? "") && r.data?.href === `/kelas/${cls.id}?tab=pengaturan`, JSON.stringify(r))
+    check("Nama kelas bentrok → ditolak per field", (await act(rina, "/kelas", KL, "createClass", [PREV, form(CLS)]))?.fieldErrors?.name !== undefined)
+    check("Pengajar lain (IDOR): halaman & aksi kelas orang lain → tidak ditemukan", !(await html(budi, `/kelas/${cls.id}`)).includes(CLS.name) && (await act(budi, `/kelas/${cls.id}`, KL, "rotateClassCode", [cls.id]))?.ok === false && (await codeOf(cls.id)) === code)
+
+    const fmt = `${code.slice(0, 3)}-${code.slice(3)}`.toLowerCase()
+    r = await join(p1, ` ${fmt} `)
+    check("Peserta gabung dengan kode huruf kecil + strip + spasi → masuk kelas", r?.ok && r.status === "ACTIVE" && !r.already && r.href === `/kelas/${cls.id}` && (await memberOf(cls.id, "2401001"))?.status === "ACTIVE", JSON.stringify(r))
+    r = await join(p1, code)
+    check("Gabung ulang → idempoten (already), kuota tidak bertambah", r?.ok && r.already && (await one(`select "usesCount" from access_codes where code=$1`, [code])).usesCount === 1, JSON.stringify(r))
+    check("Anggota melihat kelas; bukan anggota → tidak ditemukan", (await html(p1, `/kelas/${cls.id}`)).includes(CLS.name) && !(await html(p5, `/kelas/${cls.id}`)).includes(CLS.name))
+    const rInvalid = await join(p5, "ZZZZZZZ"), rFormat = await join(p5, "' OR 1=1--")
+    check("Kode tidak ada / format berbahaya → INVALID (tanpa bocor detail)", rInvalid?.error === "INVALID" && rFormat?.error === "INVALID" && rInvalid.message === rFormat.message, JSON.stringify([rInvalid, rFormat]))
+    check("Pengajar memakai kode kelas → ROLE", (await join(rina, code))?.error === "ROLE")
+
+    const nimUser = await login(NEW.email, NEW_PW)
+    r = await join(nimUser, code)
+    check("Akun tanpa NIM → PROFILE_INCOMPLETE, belum terdaftar", r?.error === "PROFILE_INCOMPLETE" && r.missing?.includes("studentId") && !(await one(`select 1 from group_members where "groupId"=$1 and "userId"=$2`, [cls.id, regUser.id])), JSON.stringify(r))
+    r = await act(nimUser, "/kelas", KL, "completeStudentId", ["2401001"])
+    check("NIM milik akun lain → ditolak", r?.ok === false && !!r.fieldErrors?.studentId, JSON.stringify(r))
+    r = await act(nimUser, "/kelas", KL, "completeStudentId", ["E2ENIM001"])
+    const rJoinNim = await join(nimUser, code)
+    check("Lengkapi NIM lalu gabung → berhasil; NIM tidak bisa diganti sendiri", r?.ok && rJoinNim?.ok && (await act(nimUser, "/kelas", KL, "completeStudentId", ["e2enim002"]))?.ok === false && (await one(`select username from users where id=$1`, [regUser.id])).username === "e2enim001", JSON.stringify([r, rJoinNim]))
+
+    await pg.query(`insert into exam_groups ("examId", "groupId") values ($1, $2) on conflict do nothing`, [exam.id, cls.id])
+    check("Ujian yang ditujukan ke kelas tampil untuk anggota", (await html(nimUser, `/kelas/${cls.id}`)).includes("E2E Kuis Struktur Data") && (await html(nimUser, "/ujian")).includes("E2E Kuis Struktur Data"))
+    r = await act(budi, `/kelas/${cls.id}`, KL, "removeMember", [cls.id, regUser.id, false])
+    check("IDOR: pengajar lain mengeluarkan anggota kelas ini → ditolak", r?.ok === false && (await memberOf(cls.id, "e2enim001"))?.status === "ACTIVE", JSON.stringify(r))
+    r = await act(rina, `/kelas/${cls.id}`, KL, "removeMember", [cls.id, regUser.id, false])
+    check("Dikeluarkan → ujian kelas & halaman kelas tidak terlihat lagi", r?.ok && !(await html(nimUser, "/ujian")).includes("E2E Kuis Struktur Data") && !(await html(nimUser, `/kelas/${cls.id}`)).includes(CLS.name), JSON.stringify(r))
+    check("Dikeluarkan tanpa blokir → boleh gabung lagi", (await join(nimUser, code))?.ok === true && (await memberOf(cls.id, "e2enim001"))?.status === "ACTIVE")
+    await act(rina, `/kelas/${cls.id}`, KL, "removeMember", [cls.id, regUser.id, true])
+    r = await join(nimUser, code)
+    check("Dikeluarkan + diblokir → tidak bisa gabung lagi", r?.error === "REMOVED", JSON.stringify(r))
+    r = await act(rina, `/kelas/${cls.id}`, KL, "restoreMember", [cls.id, regUser.id])
+    check("Pulihkan anggota → aktif lagi & blokir dicabut", r?.ok && (await memberOf(cls.id, "e2enim001"))?.status === "ACTIVE" && (await memberOf(cls.id, "e2enim001"))?.blockRejoin === false, JSON.stringify(r))
+
+    const oldCode = code
+    r = await act(rina, `/kelas/${cls.id}`, KL, "rotateClassCode", [cls.id])
+    code = await codeOf(cls.id)
+    const rOldCode = await join(p5, oldCode)
+    check("Ganti kode (bocor): kode lama → INVALID (pesan sama seperti kode tak ada), anggota lama tetap", r?.ok && code !== oldCode && rOldCode?.error === "INVALID" && rOldCode.message === rInvalid.message && (await memberOf(cls.id, "2401001"))?.status === "ACTIVE", JSON.stringify(rOldCode))
+    await act(rina, `/kelas/${cls.id}`, KL, "setClassCodeEnabled", [cls.id, false])
+    check("Kode dinonaktifkan → DISABLED", (await join(p5, code))?.error === "DISABLED")
+    await act(rina, `/kelas/${cls.id}`, KL, "setClassCodeEnabled", [cls.id, true])
+    await act(rina, `/kelas/${cls.id}`, KL, "setClassCodeLimits", [cls.id, PREV, form({ expiresAt: "2020-01-01T08:00", maxUses: "" })])
+    check("Kode kedaluwarsa → EXPIRED", (await join(p5, code))?.error === "EXPIRED")
+    await act(rina, `/kelas/${cls.id}`, KL, "setClassCodeLimits", [cls.id, PREV, form({ expiresAt: "", maxUses: "1" })])
+    r = await join(p5, code)
+    const p3 = await login("2401007")
+    const rFull = await join(p3, code)
+    check("Kuota kode 1 → peserta pertama masuk, berikutnya FULL", r?.ok && rFull?.error === "FULL" && !(await memberOf(cls.id, "2401007")), JSON.stringify([r, rFull]))
+    await act(rina, `/kelas/${cls.id}`, KL, "setClassCodeLimits", [cls.id, PREV, form({ expiresAt: "", maxUses: "" })])
+
+    r = await act(rina, `/kelas/${cls.id}`, KL, "updateClass", [cls.id, PREV, form({ ...CLS, joinLocked: "on" })])
+    check("Kelas dikunci → anggota baru LOCKED, anggota lama tetap bisa membuka", r?.ok && (await join(p3, code))?.error === "LOCKED" && (await join(p1, code))?.already === true, JSON.stringify(r))
+    await act(rina, `/kelas/${cls.id}`, KL, "updateClass", [cls.id, PREV, form({ ...CLS, joinPolicy: "APPROVAL" })])
+    r = await join(p3, code)
+    check("Mode persetujuan → PENDING, belum melihat ujian kelas", r?.ok && r.status === "PENDING" && !(await html(p3, "/ujian")).includes("E2E Kuis Struktur Data") && (await html(p3, `/kelas/${cls.id}`)).includes("Menunggu persetujuan"), JSON.stringify(r))
+    r = await act(rina, `/kelas/${cls.id}`, KL, "approveMember", [cls.id, (await one(`select id from users where username='2401007'`)).id])
+    check("Pengajar menyetujui → ACTIVE & ujian kelas terlihat", r?.ok && (await memberOf(cls.id, "2401007"))?.status === "ACTIVE" && (await html(p3, "/ujian")).includes("E2E Kuis Struktur Data"), JSON.stringify(r))
+
+    const api = (jar, body, headers = {}) => fetch(`${BASE}/api/v1/join`, { method: "POST", headers: { cookie: jar?.header ?? "", "content-type": "application/json", ...headers }, body: JSON.stringify(body) })
+    const a1 = await api(p1, { code }), a2 = await api(null, { code }), a3 = await api(p1, { code }, { origin: "https://jahat.example" }), a4 = await api(p1, { code: "ZZZZZZZ" })
+    check("API /api/v1/join: 200 (already) · 401 tanpa login · 403 origin asing · 404 kode salah", a1.status === 200 && (await a1.json()).already === true && a2.status === 401 && a3.status === 403 && a4.status === 404, [a1.status, a2.status, a3.status, a4.status].join())
+
+    await act(sa, "/admin/fitur", F, "setFeatureRole", ["kelas.gabung", "PESERTA", false])
+    check("Fitur 'Bergabung dengan Kode Kelas' dimatikan → FEATURE", (await join(p5, code))?.error === "FEATURE")
+    await act(sa, "/admin/fitur", F, "resetFeature", ["kelas.gabung"])
+    await act(rina, `/kelas/${cls.id}`, KL, "setClassArchived", [cls.id, true])
+    check("Kelas diarsipkan → kode menolak anggota baru", /diarsipkan/.test((await join(await login("2401002"), code))?.message ?? ""))
+    check("Rekap ujian tetap memuat anggota yang sudah mengerjakan walau kelasnya diarsipkan", (await html(rina, `/ujian-kelola/${exam.id}?tab=peserta`)).includes("Andi Pratama"))
   } finally {
     if (authBefore !== undefined) {
+      await act(sa, "/admin/fitur", F, "resetFeature", ["kelas.gabung"])
       await act(sa, "/admin/fitur", F, "setAuthSetting", ["registrationOpen", authBefore?.registrationOpen ?? true])
       if (!authBefore) await pg.query(`delete from site_settings where key='auth'`) // nilai = bawaan, cache tetap konsisten
     }

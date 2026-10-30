@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { ActionForm, type FormAction } from "./action-form"
 import { SecretReveal } from "./secret-reveal"
@@ -8,6 +9,7 @@ import { SecretReveal } from "./secret-reveal"
 /**
  * Dialog berisi ActionForm. Tertutup otomatis saat sukses, kecuali action
  * mengembalikan `data.password` (password sementara) — ditampilkan sekali dulu.
+ * Bila hasilnya membawa `data.href`, pengguna diarahkan ke sana.
  */
 export function FormDialog({
   trigger,
@@ -27,6 +29,7 @@ export function FormDialog({
   wide?: boolean
 }) {
   const [open, setOpen] = useState(false)
+  const router = useRouter()
   const [secret, setSecret] = useState<string | null>(null)
   const [formKey, setFormKey] = useState(0)
 
@@ -39,9 +42,10 @@ export function FormDialog({
   }
 
   const onSuccess = (result: { data?: unknown }) => {
-    const password = (result.data as { password?: string } | undefined)?.password
-    if (password) setSecret(password)
+    const data = result.data as { password?: string; href?: string } | undefined
+    if (data?.password) setSecret(data.password)
     else handleOpenChange(false)
+    if (data?.href) router.push(data.href)
   }
 
   return (

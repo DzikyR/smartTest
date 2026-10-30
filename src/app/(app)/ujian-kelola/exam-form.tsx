@@ -61,12 +61,15 @@ export function ExamForm({
   groups,
   defaults,
   submitLabel,
+  preselectGroupId,
 }: {
   action: FormAction
   subjects: { id: string; label: string }[]
   groups: { id: string; name: string; members: number }[]
   defaults?: ExamDefaults
   submitLabel: string
+  /** Ujian baru dari halaman kelas: kelas itu sudah tercentang. */
+  preselectGroupId?: string
 }) {
   const editing = !!defaults
   const [kind, setKind] = useState<ExamKind>(defaults?.kind ?? "KUIS")
@@ -154,7 +157,7 @@ export function ExamForm({
             <div className="grid max-h-56 gap-1 overflow-y-auto rounded-xl border p-2 sm:grid-cols-2 lg:grid-cols-3">
               {groups.map((g) => (
                 <label key={g.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-muted">
-                  <input type="checkbox" name="groupId" value={g.id} defaultChecked={defaults?.groupIds.includes(g.id)} className="size-4 accent-primary" />
+                  <input type="checkbox" name="groupId" value={g.id} defaultChecked={defaults ? defaults.groupIds.includes(g.id) : g.id === preselectGroupId} className="size-4 accent-primary" />
                   <span className="flex-1 truncate">{g.name}</span>
                   <span className="text-xs text-muted-foreground">{g.members}</span>
                 </label>

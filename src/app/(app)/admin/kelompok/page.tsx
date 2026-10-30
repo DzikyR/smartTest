@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { ChevronRight, Plus, UsersRound } from "lucide-react"
 import { db } from "@/lib/db"
+import { ACTIVE_STUDENT } from "@/lib/classes/access"
 import { requireFeature } from "@/lib/features/access"
 import { ADMINS } from "@/lib/auth/roles"
 import { EmptyState, PageHeader, TintIcon } from "@/components/shell/page-parts"
@@ -14,7 +15,7 @@ export const metadata: Metadata = { title: "Kelompok Peserta" }
 
 export default async function GroupsPage() {
   await requireFeature("admin.kelompok", ...ADMINS)
-  const groups = await db.group.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { members: true, exams: true } } } })
+  const groups = await db.group.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { members: { where: ACTIVE_STUDENT }, exams: true } } } })
   const tints = ["violet", "sky", "green", "orange", "rose"] as const
 
   return (

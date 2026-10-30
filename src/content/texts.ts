@@ -42,6 +42,7 @@ export const TEXTS = {
   "role.PESERTA": { group: "Peran Pengguna", label: "Peserta / mahasiswa", default: "Peserta", max: 30 },
 
   "nav.dashboard": { group: "Menu Navigasi", label: "Dashboard", default: "Dashboard", max: 30 },
+  "nav.kelas": { group: "Menu Navigasi", label: "Kelas", default: "Kelas", max: 30 },
   "nav.section.ujian": { group: "Menu Navigasi", label: "Judul bagian: Ujian", default: "Ujian", max: 30 },
   "nav.ujian": { group: "Menu Navigasi", label: "Peserta: Ujian Saya", default: "Ujian Saya", max: 30 },
   "nav.hasil": { group: "Menu Navigasi", label: "Peserta: Hasil Ujian", default: "Hasil Ujian", max: 30 },

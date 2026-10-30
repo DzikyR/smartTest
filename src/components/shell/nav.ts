@@ -1,4 +1,4 @@
-import { BookOpenText, ClipboardList, FileClock, LayoutDashboard, Library, MonitorCheck, Palette, ToggleRight, Trophy, UserRound, Users, UsersRound, type LucideIcon } from "lucide-react"
+import { BookOpenText, ClipboardList, FileClock, LayoutDashboard, Library, MonitorCheck, Palette, School, ToggleRight, Trophy, UserRound, Users, UsersRound, type LucideIcon } from "lucide-react"
 import type { Role } from "@/lib/auth/roles"
 import type { FeatureKey } from "@/lib/features/registry"
 import { DEFAULT_TEXTS, type TextKey } from "@/content/texts"
@@ -16,7 +16,12 @@ const STAFF: Role[] = ["SUPER_ADMIN", "ADMIN", "DOSEN"]
 const ADMINS: Role[] = ["SUPER_ADMIN", "ADMIN"]
 
 export const NAV: NavSection[] = [
-  { items: [{ href: "/dashboard", ...text("nav.dashboard"), icon: LayoutDashboard, roles: ALL }] },
+  {
+    items: [
+      { href: "/dashboard", ...text("nav.dashboard"), icon: LayoutDashboard, roles: ALL },
+      { href: "/kelas", ...text("nav.kelas"), icon: School, roles: ALL },
+    ],
+  },
   {
     title: DEFAULT_TEXTS["nav.section.ujian"],
     titleKey: "nav.section.ujian",
@@ -62,6 +67,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   pengguna: "Pengguna",
   kelompok: "Kelompok Peserta",
   log: "Log Aktivitas",
+  kelas: "Kelas",
+  gabung: "Gabung Kelas",
   fitur: "Kontrol Fitur",
   situs: "Tampilan Situs",
   profil: "Profil",

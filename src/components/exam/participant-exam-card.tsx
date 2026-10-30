@@ -2,7 +2,7 @@ import Link from "next/link"
 import { CalendarClock, ChevronRight, Clock, FileQuestion, ShieldCheck } from "lucide-react"
 import type { participantExams } from "@/lib/data/participant"
 import { formatDateTime } from "@/lib/format"
-import { EXAM_KIND_LABEL } from "@/lib/labels"
+import { examLabel, WORK_TYPE_LABEL } from "@/lib/labels"
 import { cn } from "@/lib/utils"
 
 type Item = Awaited<ReturnType<typeof participantExams>>[number]
@@ -17,10 +17,11 @@ const STATE = {
 
 export function ParticipantExamCard({ exam }: { exam: Item }) {
   const st = STATE[exam.state]
+  const overdue = !!exam.dueAt && exam.dueAt < new Date() && (exam.state === "available" || exam.state === "running")
   return (
     <Link href={`/ujian/${exam.id}`} className="group flex flex-col gap-4 rounded-2xl bg-card p-5 ring-1 ring-border/60 transition hover:ring-primary/40">
       <div className="flex items-start gap-3">
-        <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary text-xs font-bold text-primary-foreground">{EXAM_KIND_LABEL[exam.kind]}</span>
+        <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary text-xs font-bold text-primary-foreground">{examLabel(exam)}</span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs text-muted-foreground">
             {exam.subject.code} · {exam.subject.name}
@@ -31,8 +32,9 @@ export function ParticipantExamCard({ exam }: { exam: Item }) {
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
         <span className="flex items-center gap-1.5">
-          <Clock className="size-4" aria-hidden /> {exam.durationMinutes} menit
+          <Clock className="size-4" aria-hidden /> {exam.timed ? `${exam.durationMinutes} menit` : "Tanpa batas durasi"}
         </span>
+        {exam.workType !== "QUIZ" && <span>{WORK_TYPE_LABEL[exam.workType]}</span>}
         <span className="flex items-center gap-1.5">
           <FileQuestion className="size-4" aria-hidden /> {exam._count.questions} soal
         </span>
@@ -45,7 +47,14 @@ export function ParticipantExamCard({ exam }: { exam: Item }) {
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <CalendarClock className="size-3.5" aria-hidden />
-          {exam.state === "upcoming" && exam.startAt ? `Dibuka ${formatDateTime(exam.startAt)}` : exam.endAt ? `Ditutup ${formatDateTime(exam.endAt)}` : "Tanpa batas waktu tutup"}
+          {exam.state === "upcoming" && exam.startAt
+            ? `Dibuka ${formatDateTime(exam.startAt)}`
+            : exam.dueAt && exam.state !== "done"
+              ? `Tenggat ${formatDateTime(exam.dueAt)}`
+              : exam.endAt
+                ? `Ditutup ${formatDateTime(exam.endAt)}`
+                : "Tanpa batas waktu tutup"}
+          {overdue && <span className="rounded-full bg-tint-rose px-2 py-0.5 font-semibold text-tint-rose-fg">Lewat tenggat</span>}
         </span>
         {exam.best !== null ? (
           <span className="rounded-full bg-primary px-2.5 py-0.5 text-sm font-bold text-primary-foreground tabular-nums">{exam.best}</span>

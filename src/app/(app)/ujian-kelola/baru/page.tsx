@@ -16,9 +16,10 @@ export const metadata: Metadata = { title: "Buat Ujian" }
 export default async function NewExamPage({ searchParams }: PageProps<"/ujian-kelola/baru">) {
   const user = await requireRole(...STAFF)
   const sp = await searchParams
-  const [subjects, groups] = await Promise.all([
+  const [subjects, groups, categories] = await Promise.all([
     listManagedSubjects(user),
     db.group.findMany({ where: { AND: [{ archivedAt: null }, targetableClasses(user)] }, orderBy: { name: "asc" }, select: { id: true, name: true, _count: { select: { members: { where: ACTIVE_STUDENT } } } } }),
+    db.examCategory.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }], select: { id: true, name: true, kind: true } }),
   ])
   if (subjects.length === 0) return <EmptyState title="Belum ada mata uji yang Anda kelola" description="Admin perlu menambahkan mata uji dan menetapkan Anda sebagai pengelola." />
   const pre = subjects.find((s) => s.id === str(sp.subject))
@@ -35,6 +36,7 @@ export default async function NewExamPage({ searchParams }: PageProps<"/ujian-ke
         subjects={(pre ? [pre, ...subjects.filter((s) => s !== pre)] : subjects).map((s) => ({ id: s.id, label: `${s.code} · ${s.name}` }))}
         groups={groups.map((g) => ({ id: g.id, name: g.name, members: g._count.members }))}
         preselectGroupId={str(sp.kelas)}
+        categories={categories}
       />
     </div>
   )

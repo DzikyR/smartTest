@@ -35,7 +35,7 @@ import { STAFF } from "@/lib/auth/roles"
 import { getManagedExam } from "@/lib/data/access"
 import { DISTRIBUTION_BUCKETS, loadExamReport } from "@/lib/data/exam-report"
 import { formatDateTime, formatTime } from "@/lib/format"
-import { EXAM_KIND_LABEL, QUESTION_TYPE_LABEL, SUBJECT_TYPE_LABEL } from "@/lib/labels"
+import { examLabel, QUESTION_TYPE_LABEL, SUBJECT_TYPE_LABEL } from "@/lib/labels"
 import { EXAM_STATUS, examStatus } from "@/lib/exam/status"
 import { examRules } from "@/lib/exam/rules"
 import { effectiveSebKeys } from "@/lib/exam/guard"
@@ -105,7 +105,7 @@ export default async function ExamDetailPage({ params, searchParams }: PageProps
         <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="rounded-full bg-white/20 px-2.5 py-0.5 font-semibold">{EXAM_KIND_LABEL[exam.kind]}</span>
+              <span className="rounded-full bg-white/20 px-2.5 py-0.5 font-semibold">{examLabel(exam)}</span>
               <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-semibold", EXAM_STATUS[status].className)}>{EXAM_STATUS[status].label}</span>
               <span className="text-primary-foreground/80">
                 {exam.subject.code} · {exam.subject.name} ({SUBJECT_TYPE_LABEL[exam.subject.type]})
@@ -489,7 +489,7 @@ function ParticipantsTab({ exam, report }: { exam: Exam; report: Report }) {
                     <td className="px-3 py-3">
                       {running ? (
                         <span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", running.expired ? "bg-muted text-muted-foreground" : "bg-tint-orange text-tint-orange-fg")}>
-                          {running.expired ? "Waktu habis" : `Mengerjakan · s.d. ${formatTime(new Date(running.deadline))}`}
+                          {running.expired ? "Waktu habis" : Number.isFinite(running.deadline) ? `Mengerjakan · s.d. ${formatTime(new Date(running.deadline))}` : "Mengerjakan"}
                         </span>
                       ) : latest ? (
                         <span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", latest.status === "SUBMITTED" ? "bg-tint-sky text-tint-sky-fg" : "bg-tint-green text-tint-green-fg")}>
@@ -499,6 +499,7 @@ function ParticipantsTab({ exam, report }: { exam: Exam; report: Report }) {
                       ) : (
                         <span className="text-xs text-muted-foreground">Belum mulai</span>
                       )}
+                      {!running && latest?.isLate && <span className="ml-1 rounded-full bg-tint-rose px-2 py-1 text-xs font-semibold text-tint-rose-fg">Terlambat</span>}
                     </td>
                     <td className="px-3 py-3 text-xs text-muted-foreground">
                       {running ? (

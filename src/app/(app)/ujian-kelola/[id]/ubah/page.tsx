@@ -19,7 +19,7 @@ export default async function EditExamPage({ params }: PageProps<"/ujian-kelola/
   const { id } = await params
   const exam = await getManagedExam(user, id)
   if (!exam) notFound()
-  const [subjects, groups] = await Promise.all([
+  const [subjects, groups, categories] = await Promise.all([
     listManagedSubjects(user),
     db.group.findMany({
       // Kelas yang boleh dituju (aktif) + kelas yang sudah dipilih untuk ujian ini.
@@ -27,6 +27,7 @@ export default async function EditExamPage({ params }: PageProps<"/ujian-kelola/
       orderBy: { name: "asc" },
       select: { id: true, name: true, _count: { select: { members: { where: ACTIVE_STUDENT } } } },
     }),
+    db.examCategory.findMany({ where: { OR: [{ isActive: true }, { exams: { some: { id } } }] }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }], select: { id: true, name: true, kind: true } }),
   ])
 
   return (
@@ -41,6 +42,7 @@ export default async function EditExamPage({ params }: PageProps<"/ujian-kelola/
         subjects={subjects.map((s) => ({ id: s.id, label: `${s.code} · ${s.name}` }))}
         groups={groups.map((g) => ({ id: g.id, name: g.name, members: g._count.members }))}
         defaults={{ ...exam, groupIds: exam.groups.map((g) => g.group.id) }}
+        categories={categories}
       />
     </div>
   )

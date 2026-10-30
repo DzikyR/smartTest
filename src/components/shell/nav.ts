@@ -1,4 +1,4 @@
-import { BookOpenText, ClipboardList, FileClock, LayoutDashboard, Library, MonitorCheck, Palette, School, ToggleRight, Trophy, UserRound, Users, UsersRound, type LucideIcon } from "lucide-react"
+import { BookOpenText, ClipboardList, FileClock, LayoutDashboard, Library, MonitorCheck, Palette, School, Tags, ToggleRight, Trophy, UserRound, Users, UsersRound, type LucideIcon } from "lucide-react"
 import type { Role } from "@/lib/auth/roles"
 import type { FeatureKey } from "@/lib/features/registry"
 import { DEFAULT_TEXTS, type TextKey } from "@/content/texts"
@@ -39,6 +39,7 @@ export const NAV: NavSection[] = [
     items: [
       { href: "/admin/pengguna", ...text("nav.pengguna"), icon: Users, roles: ADMINS },
       { href: "/admin/kelompok", ...text("nav.kelompok"), icon: UsersRound, roles: ADMINS, feature: "admin.kelompok" },
+      { href: "/admin/kategori", label: "Kategori Ujian", icon: Tags, roles: ADMINS },
       { href: "/admin/log", label: "Log Aktivitas", icon: FileClock, roles: ["SUPER_ADMIN"] },
       { href: "/admin/fitur", label: "Kontrol Fitur", icon: ToggleRight, roles: ["SUPER_ADMIN"] },
       { href: "/admin/situs", label: "Tampilan Situs", icon: Palette, roles: ["SUPER_ADMIN"] },
@@ -68,6 +69,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   kelompok: "Kelompok Peserta",
   log: "Log Aktivitas",
   kelas: "Kelas",
+  kategori: "Kategori Ujian",
   gabung: "Gabung Kelas",
   fitur: "Kontrol Fitur",
   situs: "Tampilan Situs",

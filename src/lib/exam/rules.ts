@@ -13,6 +13,8 @@ export const MAX_CUSTOM_RULES = 20
 export type RuleExam = {
   durationMinutes: number
   endAt: Date | null
+  timed?: boolean
+  dueAt?: Date | null
   maxAttempts: number
   token?: string | null
   showScore: boolean
@@ -47,7 +49,7 @@ export function customRulesError(text: string | null | undefined) {
 export function examRules(exam: RuleExam): ExamRule[] {
   const sys: string[] = []
   sys.push(
-    `Terdiri dari ${exam._count.questions} soal; waktu pengerjaan ${exam.durationMinutes} menit dihitung sejak tombol Mulai ditekan${exam.endAt ? `; ujian ditutup ${formatDateTime(exam.endAt)}` : ""}.`
+    `Terdiri dari ${exam._count.questions} soal; ${exam.timed === false ? "tanpa batas durasi pengerjaan" : `waktu pengerjaan ${exam.durationMinutes} menit dihitung sejak tombol Mulai ditekan`}${exam.dueAt ? `; tenggat ${formatDateTime(exam.dueAt)} (setelahnya ditandai terlambat)` : ""}${exam.endAt ? `; ditutup ${formatDateTime(exam.endAt)}` : ""}.`
   )
   sys.push(exam.maxAttempts > 1 ? `Kesempatan mengerjakan ${exam.maxAttempts}×; nilai terbaik yang dipakai.` : "Hanya satu kali kesempatan mengerjakan.")
   if (exam.passingScore) sys.push(`Nilai minimal lulus: ${exam.passingScore}.`)

@@ -97,6 +97,7 @@ export function ExamRunner({
   initialFlagged,
   initialLeaveCount,
   initialDeadline,
+  timed,
   saveAction,
   submitAction,
   security,
@@ -112,6 +113,8 @@ export function ExamRunner({
   initialFlagged: string[]
   initialLeaveCount: number
   initialDeadline: number
+  /** false = tanpa batas durasi (penghitung disembunyikan kecuali jadwal tutup < 1 jam) */
+  timed: boolean
   saveAction: (answers: QuizAnswers, flagged: string[], leaveCount: number, sebHash?: string) => Promise<ActionResult<{ savedAt: string; terminated?: boolean; deadline?: number }>>
   submitAction: (answers: QuizAnswers, flagged: string[], sebHash?: string) => Promise<ActionResult<{ score: number | null }>>
   security: ExamSecurity
@@ -473,7 +476,8 @@ export function ExamRunner({
             <Plus />
           </Button>
         </div>
-        {remaining !== null && (
+        {/* Tanpa batas durasi: penghitung hanya muncul bila jadwal tutup tinggal < 1 jam */}
+        {remaining !== null && Number.isFinite(remaining) && (timed || remaining < 3600) && (
           <span
             className={cn("flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-mono text-sm font-bold tabular-nums", lowTime ? "bg-destructive text-white" : "bg-primary text-primary-foreground")}
             role="timer"

@@ -30,7 +30,15 @@ const examSchema = z
   .object({
     subjectId: z.string().trim().min(1, "Pilih mata uji"),
     title: z.string().trim().min(3, "Minimal 3 karakter").max(200),
-    kind: z.enum(KINDS, "Pilih jenis ujian"),
+    kind: z.enum(KINDS, "Pilih jenis ujian").default("KUIS"),
+    categoryId: z
+      .string()
+      .optional()
+      .transform((v) => v || null),
+    workType: z.enum(["QUIZ", "QUESTION"]).default("QUIZ"),
+    dueAt: optionalLocalDateTime,
+    /** Dikirim sebagai "Tanpa batas durasi" agar form/klien lama tetap ber-durasi. */
+    untimed: checkbox,
     instructions: optionalText(10_000),
     durationMinutes: z.coerce.number("Durasi harus angka").int("Bilangan bulat").min(1, "Durasi 1–600 menit").max(600, "Durasi 1–600 menit"),
     startAt: optionalLocalDateTime,
@@ -60,6 +68,8 @@ const examSchema = z
   })
   .superRefine((v, ctx) => {
     if (v.startAt && v.endAt && v.endAt <= v.startAt) ctx.addIssue({ code: "custom", path: ["endAt"], message: "Waktu tutup harus setelah waktu buka" })
+    if (v.dueAt && v.endAt && v.dueAt > v.endAt) ctx.addIssue({ code: "custom", path: ["dueAt"], message: "Tenggat tidak boleh setelah waktu tutup" })
+    if (v.dueAt && v.startAt && v.dueAt <= v.startAt) ctx.addIssue({ code: "custom", path: ["dueAt"], message: "Tenggat harus setelah waktu buka" })
     const ips = parseIpList(v.allowedIps).invalid
     if (ips.length) ctx.addIssue({ code: "custom", path: ["allowedIps"], message: `IP/CIDR tidak valid: ${ips.slice(0, 3).join(", ")}` })
     if (parseConfigKeys(v.sebConfigKeys).invalid.length) ctx.addIssue({ code: "custom", path: ["sebConfigKeys"], message: "Config Key = 64 karakter heksadesimal, satu per baris" })
@@ -71,13 +81,19 @@ const examSchema = z
 async function parseExam(user: CurrentUser, formData: FormData, examId?: string) {
   const parsed = examSchema.safeParse(formObject(formData))
   if (!parsed.success) return { error: zodFail(parsed.error) }
-  const { hideScore, ...v } = parsed.data
+  const { hideScore, untimed, ...v } = parsed.data
   if (!(await canManageSubject(user, v.subjectId))) return { error: fail("Mata uji tidak valid.", { subjectId: "Pilih mata uji yang Anda kelola" }) }
+  // Kategori menentukan perilaku dasar (kind) — nilai kind dari klien tidak dipercaya bila kategori dipilih.
+  if (v.categoryId) {
+    const category = await db.examCategory.findFirst({ where: { id: v.categoryId, OR: [{ isActive: true }, ...(examId ? [{ exams: { some: { id: examId } } }] : [])] }, select: { kind: true } })
+    if (!category) return { error: fail("Kategori tidak valid.", { categoryId: "Pilih kategori yang tersedia" }) }
+    v.kind = category.kind
+  }
   const groupIds = [...new Set(formData.getAll("groupId").map(String).filter(Boolean))]
   // Hanya kelas yang boleh dituju actor; ID lain (mis. form dimodifikasi) diabaikan.
   const allowed = examId ? { OR: [targetableClasses(user), { exams: { some: { examId } } }] } : targetableClasses(user)
   const groups = v.openToAll ? [] : (await db.group.findMany({ where: { AND: [{ id: { in: groupIds } }, allowed] }, select: { id: true } })).map((g) => g.id)
-  return { data: { ...v, showScore: !hideScore }, groups }
+  return { data: { ...v, timed: !untimed, showScore: !hideScore }, groups }
 }
 
 export async function createExam(_prev: ActionResult, formData: FormData) {
@@ -113,6 +129,7 @@ export async function setExamPublished(examId: string, published: boolean): Prom
   const exam = await getManagedExam(user, examId)
   if (!exam) return fail(DENIED)
   if (published && exam._count.questions === 0) return fail("Tambahkan minimal satu soal sebelum menerbitkan.")
+  if (published && exam.workType === "QUESTION" && exam._count.questions !== 1) return fail("Pertanyaan harus berisi tepat satu soal. Hapus soal lain atau ubah jenisnya menjadi Tugas Kuis.")
   if (published && !exam.openToAll && exam.groups.length === 0) return fail("Tentukan peserta: pilih kelompok atau buka untuk semua peserta (menu Ubah).")
   await db.exam.update({ where: { id: examId }, data: { publishedAt: published ? (exam.publishedAt ?? new Date()) : null } })
   await audit(published ? "EXAM_PUBLISHED" : "EXAM_UNPUBLISHED", { userId: user.id, entity: "Exam", entityId: examId })

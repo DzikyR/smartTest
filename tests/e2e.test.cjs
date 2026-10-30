@@ -218,6 +218,7 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
     r = await act(sa, "/admin/fitur", F, "resetFeature", ["bank-soal.impor"])
     check("Reset ke bawaan → Dosen bisa impor lagi", r?.ok && (await html(rina, "/bank-soal/impor")).includes(IMPOR_PAGE), JSON.stringify(r))
     check("Perubahan fitur tercatat di log audit", (await one(`select count(*)::int n from audit_logs where action in ('FEATURE_TOGGLED','FEATURE_RESET')`)).n - auditBefore === 4)
+    await act(sa, "/admin/fitur", F, "resetFeature", ["ujian.mulai"]) // pulihkan untuk skenario berikutnya
 
     // ---------- Tampilan situs: tema, teks, logo (Super Admin) ----------
     // Dilewati bila sudah ada pengaturan tampilan sungguhan, agar tidak tertimpa.
@@ -452,6 +453,48 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
     check("Pemilik kelas menujukan ujian ke kelasnya → berhasil", rinaTargets.join() === CLS.name, rinaTargets)
     const newForm = await html(rina, `/ujian-kelola/baru?kelas=${cls.id}`)
     check("Buat ujian dari halaman kelas (?kelas=) → kelas tercentang otomatis", (newForm.match(new RegExp(`<input[^>]*value="${cls.id}"[^>]*>`))?.[0] ?? "").includes("checked"), newForm.match(new RegExp(`<input[^>]*value="${cls.id}"[^>]*>`))?.[0] ?? "kelas tidak ada di form")
+    // ---------- Fase 3a: kategori dinamis, jenis pekerjaan, tenggat, tanpa durasi ----------
+    const CT = "kategori/actions"
+    const wib = (ms) => new Date(ms + 7 * 3600_000).toISOString().slice(0, 16)
+    r = await act(rina, "/admin/kategori", CT, "createCategory", [PREV, form({ name: "E2E Psikotes", kind: "UTS", sortOrder: 5 })])
+    check("Pengajar membuat kategori → ditolak", r?.ok !== true && !(await one(`select 1 from exam_categories where name='E2E Psikotes'`)), JSON.stringify(r))
+    r = await act(admin, "/admin/kategori", CT, "createCategory", [PREV, form({ name: "E2E Psikotes", kind: "UTS", sortOrder: 5 })])
+    const cat = await one(`select id from exam_categories where name='E2E Psikotes'`)
+    check("Admin membuat kategori dinamis", r?.ok && !!cat, JSON.stringify(r))
+
+    const Q = { subjectId: algo.id, title: "E2E Pertanyaan Rekursi", kind: "KUIS", categoryId: cat.id, workType: "QUESTION", untimed: "on", durationMinutes: 5, maxAttempts: 1, questionsPerPage: 1, openToAll: "on" }
+    r = await act(rina, "/ujian-kelola/baru", K, "createExam", [PREV, form({ ...Q, dueAt: wib(Date.now() + 5 * 86400_000), endAt: wib(Date.now() + 2 * 86400_000) })])
+    check("Tenggat setelah waktu tutup → ditolak per field", r?.ok === false && !!r.fieldErrors?.dueAt, JSON.stringify(r))
+    await act(rina, "/ujian-kelola/baru", K, "createExam", [PREV, form({ ...Q, dueAt: wib(Date.now() - 3600_000), endAt: wib(Date.now() + 2 * 86400_000) })])
+    const qx = await one(`select id, kind, "workType", timed, "dueAt", "categoryId" from exams where title=$1`, [Q.title])
+    check("Kategori menentukan perilaku dasar (kind kiriman klien diabaikan); Pertanyaan tanpa durasi tersimpan", qx?.kind === "UTS" && qx.workType === "QUESTION" && qx.timed === false && !!qx.dueAt && qx.categoryId === cat.id, JSON.stringify(qx))
+
+    const qRaw = (prompt) => ({ type: "PG", prompt, options: ["Ya", "Tidak", "", ""], key: "A", points: "1", topic: "E2E", difficulty: "1" })
+    await act(rina, "/bank-soal/massal", B, "saveBulk", [algo.id, [qRaw("E2E Rekursi memanggil dirinya sendiri?"), qRaw("E2E Soal kedua")], qx.id])
+    r = await act(rina, `/ujian-kelola/${qx.id}`, K, "setExamPublished", [qx.id, true])
+    check("Pertanyaan berisi 2 soal → tidak bisa diterbitkan", r?.ok === false && /tepat satu soal/.test(r.error), JSON.stringify(r))
+    await pg.query(`delete from exam_questions where "examId"=$1 and prompt='E2E Soal kedua'`, [qx.id])
+    r = await act(rina, `/ujian-kelola/${qx.id}`, K, "setExamPublished", [qx.id, true])
+    check("Pertanyaan berisi 1 soal → terbit", r?.ok, JSON.stringify(r))
+    const p5Ujian = await html(p5, "/ujian")
+    check("Kartu peserta: nama kategori, jenis Pertanyaan, tanpa durasi, lewat tenggat", ["E2E Psikotes", "Pertanyaan", "Tanpa batas durasi", "Lewat tenggat"].every((t) => p5Ujian.includes(t)))
+
+    r = await act(p5, T(qx.id), P, "startExam", [qx.id, PREV, form({})])
+    const qAttempt = await one(`select id from attempts where "examId"=$1 and "userId"=(select id from users where username='2401005')`, [qx.id])
+    const qq = await one(`select id from exam_questions where "examId"=$1`, [qx.id])
+    const saved = await act(p5, T(qx.id), P, "saveProgress", [qAttempt?.id, { [qq.id]: "a" }, [], 0])
+    // epoch dari SQL: driver pg membaca timestamp tanpa zona sebagai waktu lokal (WIB), Prisma menyimpan UTC
+    const qEnd = Number((await one(`select (extract(epoch from "endAt") * 1000)::bigint ms from exams where id=$1`, [qx.id])).ms)
+    check("Autosave ujian tanpa durasi → batas = jadwal tutup, bukan durasi 5 menit (tidak terkumpul otomatis di tengah jalan)", r?.ok && saved?.ok && saved.data?.deadline === qEnd, JSON.stringify({ start: r, saved, qEnd }))
+    const rekapRunning = await html(rina, `/ujian-kelola/${qx.id}?tab=peserta`)
+    check("Rekap pengawas saat peserta mengerjakan ujian tanpa durasi → tampil tanpa error", rekapRunning.includes("Bunga Lestari") || rekapRunning.includes("Mengerjakan"))
+    r = qAttempt && await act(p5, T(qx.id), P, "submitExam", [qAttempt.id, { [qq.id]: "a" }, []])
+    const qDone = qAttempt ? await one(`select "isLate", status, score from attempts where id=$1`, [qAttempt.id]) : {}
+    check("Kumpul setelah tenggat → diterima, dinilai, ditandai terlambat", r?.ok && qDone.isLate === true && qDone.status === "GRADED" && qDone.score === 100, JSON.stringify(qDone))
+    check("Rekap menampilkan tanda Terlambat", (await html(rina, `/ujian-kelola/${qx.id}?tab=peserta`)).includes("Terlambat"))
+
+    r = await act(admin, "/admin/kategori", CT, "setCategoryActive", [cat.id, false])
+    check("Kategori nonaktif: hilang dari form ujian baru, tetap ada di form ubah ujian yang memakainya", r?.ok && !(await html(rina, "/ujian-kelola/baru")).includes("E2E Psikotes") && (await html(rina, `/ujian-kelola/${qx.id}/ubah`)).includes("E2E Psikotes"))
   } finally {
     if (authBefore !== undefined) {
       await act(sa, "/admin/fitur", F, "resetFeature", ["kelas.gabung"])
@@ -472,6 +515,7 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
     await pg.query(`delete from groups where name like 'E2E%'`)
     await pg.query(`delete from exams where title like 'E2E%'`)
     await pg.query(`delete from questions where prompt like 'E2E%'`)
+    await pg.query(`delete from exam_categories where name like 'E2E%'`)
     await pg.query(`delete from group_members where "groupId"=$1 and "userId"=(select id from users where username='2401005')`, [ifa.id])
     await pg.query(`delete from users where email like 'e2e.%'`)
     await pg.end()

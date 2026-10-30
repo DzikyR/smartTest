@@ -10,7 +10,7 @@ import { rateLimit } from "@/lib/rate-limit"
 import { examWindow, getParticipantExam } from "@/lib/data/access"
 import { fail, ok, prismaCode, type ActionResult } from "@/lib/action-result"
 import { buildLayout } from "@/lib/exam/layout"
-import { finalizeAttempt, isPastDeadline, sanitizeAnswers } from "@/lib/exam/attempt"
+import { attemptDeadline, finalizeAttempt, isPastDeadline, sanitizeAnswers } from "@/lib/exam/attempt"
 import { bindDevice, checkExamEnvironment, deviceState, OTHER_DEVICE } from "@/lib/exam/guard"
 import type { QuizAnswers } from "@/lib/exam/grading"
 
@@ -134,10 +134,9 @@ export async function saveProgress(
     return ok(`Batas ${exam.maxLeaves}× meninggalkan halaman ujian tercapai — jawaban dikumpulkan otomatis.`, { savedAt: savedAt.toISOString(), terminated: true })
   }
   // Batas waktu terbaru (pengawas dapat menambah waktu selama ujian berjalan).
+  // Satu sumber kebenaran: attemptDeadline (menghormati ujian tanpa durasi → Infinity).
   const fresh = await db.attempt.findUnique({ where: { id: attempt.id }, select: { extraMinutes: true } })
-  const deadlineMs = attempt.startedAt.getTime() + (exam.durationMinutes + (fresh?.extraMinutes ?? 0)) * 60_000
-  const endMs = exam.endAt ? exam.endAt.getTime() + (fresh?.extraMinutes ?? 0) * 60_000 : null
-  return ok(undefined, { savedAt: savedAt.toISOString(), deadline: endMs === null ? deadlineMs : Math.min(deadlineMs, endMs) })
+  return ok(undefined, { savedAt: savedAt.toISOString(), deadline: attemptDeadline(exam, { startedAt: attempt.startedAt, extraMinutes: fresh?.extraMinutes ?? 0 }) })
 }
 
 export async function submitExam(attemptId: string, rawAnswers: QuizAnswers, rawFlagged: string[] = [], sebHash?: string): Promise<ActionResult<{ score: number | null }>> {

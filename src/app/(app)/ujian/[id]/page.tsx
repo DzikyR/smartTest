@@ -6,7 +6,7 @@ import { db } from "@/lib/db"
 import { requireRole } from "@/lib/auth/dal"
 import { examWindow, getParticipantExam } from "@/lib/data/access"
 import { formatDateTime } from "@/lib/format"
-import { EXAM_KIND_LABEL } from "@/lib/labels"
+import { examLabel } from "@/lib/labels"
 import { attemptDeadline } from "@/lib/exam/attempt"
 import { applyLayout, type ExamLayout } from "@/lib/exam/layout"
 import { checkExamEnvironment, deviceState, OTHER_DEVICE } from "@/lib/exam/guard"
@@ -40,7 +40,7 @@ export default async function TakeExamPage({ params }: PageProps<"/ujian/[id]">)
   const env = await checkExamEnvironment(exam)
   const device = running && exam.lockDevice ? await deviceState(running) : "match"
   const rules = examRules(exam)
-  const kindLabel = EXAM_KIND_LABEL[exam.kind]
+  const kindLabel = examLabel(exam)
   const runnerActive = env.ok && !!running && device === "match"
 
   if (runnerActive && running) {
@@ -62,6 +62,7 @@ export default async function TakeExamPage({ params }: PageProps<"/ujian/[id]">)
         initialFlagged={Array.isArray(running.flagged) ? (running.flagged as string[]) : []}
         initialLeaveCount={running.leaveCount}
         initialDeadline={attemptDeadline(exam, running)}
+        timed={exam.timed}
         saveAction={saveProgress.bind(null, running.id)}
         submitAction={submitExam.bind(null, running.id)}
         security={{ requireFullscreen: exam.requireFullscreen, blockCopyPaste: exam.blockCopyPaste, maxLeaves: exam.maxLeaves }}
@@ -102,11 +103,16 @@ export default async function TakeExamPage({ params }: PageProps<"/ujian/[id]">)
               <MonitorCheck className="size-4" aria-hidden /> {kindLabel}
             </span>
             <span className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1">
-              <Clock className="size-4" aria-hidden /> {exam.durationMinutes} menit
+              <Clock className="size-4" aria-hidden /> {exam.timed ? `${exam.durationMinutes} menit` : "Tanpa batas durasi"}
             </span>
             <span className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1">
               <FileQuestion className="size-4" aria-hidden /> {exam._count.questions} soal
             </span>
+            {exam.dueAt && (
+              <span className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1">
+                <CalendarClock className="size-4" aria-hidden /> Tenggat {formatDateTime(exam.dueAt)}
+              </span>
+            )}
             {exam.endAt && (
               <span className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1">
                 <CalendarClock className="size-4" aria-hidden /> Tutup {formatDateTime(exam.endAt)}
@@ -167,7 +173,8 @@ export default async function TakeExamPage({ params }: PageProps<"/ujian/[id]">)
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <p className="text-sm text-muted-foreground">
-              Waktu {exam.durationMinutes} menit mulai dihitung saat tombol ditekan. Dengan menekan Mulai, Anda menyatakan telah membaca dan menyetujui tata tertib di atas.
+              {exam.timed ? `Waktu ${exam.durationMinutes} menit mulai dihitung saat tombol ditekan.` : "Tanpa batas durasi — jawaban tersimpan otomatis, kumpulkan sebelum ujian ditutup."}
+              {exam.dueAt && exam.dueAt < new Date() && " Tenggat sudah lewat: pengumpulan ditandai terlambat."} Dengan menekan Mulai, Anda menyatakan telah membaca dan menyetujui tata tertib di atas.
               {exam.maxAttempts > 1 && ` Sisa kesempatan: ${left}×.`}
             </p>
             <ActionForm action={startExam.bind(null, exam.id)} submitLabel={finals.length ? "Mulai lagi" : "Mulai ujian"} footerClassName="justify-start">

@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Clock, ShieldCheck, Users } from "lucide-react"
 import type { ExamKind } from "@/generated/prisma/enums"
-import { EXAM_KIND_LABEL, isHighStakes } from "@/lib/labels"
+import { isHighStakes, WORK_TYPE_LABEL } from "@/lib/labels"
 import { toDateTimeInput } from "@/lib/format"
 import { ActionForm, FormField, type FormAction } from "@/components/forms/action-form"
 import { Checkbox } from "@/components/forms/checkbox"
@@ -15,6 +15,10 @@ export type ExamDefaults = {
   subjectId: string
   title: string
   kind: ExamKind
+  categoryId: string | null
+  workType: "QUIZ" | "QUESTION" | "ASSIGNMENT"
+  dueAt: Date | null
+  timed: boolean
   instructions: string | null
   durationMinutes: number
   startAt: Date | null
@@ -59,6 +63,7 @@ export function ExamForm({
   action,
   subjects,
   groups,
+  categories,
   defaults,
   submitLabel,
   preselectGroupId,
@@ -66,13 +71,19 @@ export function ExamForm({
   action: FormAction
   subjects: { id: string; label: string }[]
   groups: { id: string; name: string; members: number }[]
+  /** Kategori aktif (+ kategori ujian ini walau sudah dinonaktifkan) */
+  categories: { id: string; name: string; kind: ExamKind }[]
   defaults?: ExamDefaults
   submitLabel: string
   /** Ujian baru dari halaman kelas: kelas itu sudah tercentang. */
   preselectGroupId?: string
 }) {
   const editing = !!defaults
-  const [kind, setKind] = useState<ExamKind>(defaults?.kind ?? "KUIS")
+  const initialCategory = categories.find((c) => c.id === defaults?.categoryId) ?? (defaults ? undefined : categories.find((c) => c.kind === "KUIS"))
+  const [categoryId, setCategoryId] = useState(initialCategory?.id ?? "")
+  const kind: ExamKind = categories.find((c) => c.id === categoryId)?.kind ?? defaults?.kind ?? "KUIS"
+  const [workType, setWorkType] = useState(defaults?.workType === "QUESTION" ? "QUESTION" : "QUIZ")
+  const [untimed, setUntimed] = useState(defaults ? !defaults.timed : false)
   const [openToAll, setOpenToAll] = useState(defaults?.openToAll ?? false)
   // Tingkat pengamanan bawaan: kuis/latihan = tingkat 1, UTS/UAS = tingkat 2 (Safe Exam Browser).
   const level = isHighStakes(kind) ? 2 : 1
@@ -90,16 +101,31 @@ export function ExamForm({
               ))}
             </NativeSelect>
           </FormField>
-          <FormField name="kind" label="Jenis ujian">
-            <NativeSelect id="kind" name="kind" value={kind} onChange={(e) => setKind(e.target.value as ExamKind)}>
-              {(Object.keys(EXAM_KIND_LABEL) as ExamKind[]).map((k) => (
-                <option key={k} value={k}>
-                  {EXAM_KIND_LABEL[k]}
+          <FormField name="categoryId" label="Kategori" hint="Dikelola Admin di menu Kategori Ujian.">
+            <NativeSelect id="categoryId" name="categoryId" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
                 </option>
               ))}
             </NativeSelect>
           </FormField>
         </div>
+        <input type="hidden" name="kind" value={kind} />
+        <FormField name="workType" label="Jenis pekerjaan">
+          <NativeSelect
+            id="workType"
+            name="workType"
+            value={workType}
+            onChange={(e) => {
+              setWorkType(e.target.value)
+              if (!editing) setUntimed(e.target.value === "QUESTION")
+            }}
+          >
+            <option value="QUIZ">{WORK_TYPE_LABEL.QUIZ} — kumpulan soal (pilihan ganda, isian, esai)</option>
+            <option value="QUESTION">{WORK_TYPE_LABEL.QUESTION} — satu soal singkat untuk kelas</option>
+          </NativeSelect>
+        </FormField>
         <FormField name="title" label="Judul ujian">
           <Input id="title" name="title" defaultValue={defaults?.title} maxLength={200} required placeholder="mis. UTS Algoritma & Pemrograman" />
         </FormField>
@@ -107,8 +133,11 @@ export function ExamForm({
           <Textarea id="instructions" name="instructions" defaultValue={defaults?.instructions ?? ""} rows={3} maxLength={10_000} />
         </FormField>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <FormField name="durationMinutes" label="Durasi pengerjaan (menit)" hint="Dihitung sejak peserta menekan Mulai.">
-            <Input id="durationMinutes" name="durationMinutes" type="number" inputMode="numeric" min={1} max={600} defaultValue={defaults?.durationMinutes ?? 60} required />
+          <FormField name="durationMinutes" label="Durasi pengerjaan (menit)" hint={untimed ? "Tidak dipakai — tanpa batas durasi." : "Dihitung sejak peserta menekan Mulai."}>
+            <Input id="durationMinutes" name="durationMinutes" type="number" inputMode="numeric" min={1} max={600} defaultValue={defaults?.durationMinutes ?? 60} required readOnly={untimed} className={untimed ? "opacity-50" : undefined} />
+          </FormField>
+          <FormField name="dueAt" label="Tenggat (WIB)" hint="Opsional. Setelahnya tetap bisa dikumpulkan s.d. waktu tutup, ditandai terlambat.">
+            <Input id="dueAt" name="dueAt" type="datetime-local" defaultValue={toDateTimeInput(defaults?.dueAt)} />
           </FormField>
           <FormField name="startAt" label="Dibuka (WIB)" hint="Kosong = langsung">
             <Input id="startAt" name="startAt" type="datetime-local" defaultValue={toDateTimeInput(defaults?.startAt)} />
@@ -136,6 +165,13 @@ export function ExamForm({
           </FormField>
         </div>
         <div className="grid gap-2 sm:grid-cols-3">
+          <label className="flex items-start gap-2.5 text-sm">
+            <input type="checkbox" name="untimed" checked={untimed} onChange={(e) => setUntimed(e.target.checked)} className="mt-0.5 size-4 accent-primary" />
+            <span>
+              Tanpa batas durasi
+              <span className="block text-xs text-muted-foreground">Peserta boleh mengerjakan kapan saja sampai waktu tutup (cocok untuk Pertanyaan/latihan).</span>
+            </span>
+          </label>
           <Checkbox name="shuffleQuestions" label="Acak urutan soal" defaultChecked={defaults?.shuffleQuestions ?? true} />
           <Checkbox name="shuffleOptions" label="Acak urutan pilihan" defaultChecked={defaults?.shuffleOptions ?? true} />
           <Checkbox name="hideScore" label="Sembunyikan nilai dari peserta" hint="Tampilkan nanti setelah esai dikoreksi." defaultChecked={defaults ? !defaults.showScore : isHighStakes(kind)} />

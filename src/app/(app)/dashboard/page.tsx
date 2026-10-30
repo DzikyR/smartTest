@@ -11,7 +11,7 @@ import { enabledFeatures } from "@/lib/features/access"
 import type { FeatureKey } from "@/lib/features/registry"
 import { participantExams } from "@/lib/data/participant"
 import { formatDateTime } from "@/lib/format"
-import { EXAM_KIND_LABEL } from "@/lib/labels"
+import { examLabel } from "@/lib/labels"
 import { round2 } from "@/lib/exam/grading"
 import { EXAM_STATUS, examStatus } from "@/lib/exam/status"
 import { cn } from "@/lib/utils"
@@ -64,7 +64,7 @@ async function StaffDashboard({ user }: { user: CurrentUser }) {
       where: scope,
       orderBy: { createdAt: "desc" },
       take: 60,
-      select: { id: true, title: true, kind: true, publishedAt: true, sessionActive: true, startAt: true, endAt: true, durationMinutes: true, subject: { select: { code: true } } },
+      select: { id: true, title: true, kind: true, category: { select: { name: true } }, publishedAt: true, sessionActive: true, startAt: true, endAt: true, durationMinutes: true, subject: { select: { code: true } } },
     }),
     db.attempt.groupBy({ by: ["examId"], where: { status: "SUBMITTED", exam: scope }, _count: true }),
     isAdmin(user)
@@ -88,7 +88,7 @@ async function StaffDashboard({ user }: { user: CurrentUser }) {
     .slice(0, 8)
     .map((g) => {
       const e = examTitle.get(g.examId)!
-      return { label: `${EXAM_KIND_LABEL[e.kind]} ${e.subject.code}`, value: round2(g._avg.score ?? 0), hint: `${e.title} · ${g._count} peserta` }
+      return { label: `${examLabel(e)} ${e.subject.code}`, value: round2(g._avg.score ?? 0), hint: `${e.title} · ${g._count} peserta` }
     })
   const toGradeTotal = toGrade.reduce((s, g) => s + g._count, 0)
 
@@ -139,7 +139,7 @@ async function StaffDashboard({ user }: { user: CurrentUser }) {
                 {active.slice(0, 6).map((e) => (
                   <li key={e.id}>
                     <Link href={`/ujian-kelola/${e.id}?tab=peserta`} className="flex items-center gap-3 rounded-xl p-2 hover:bg-muted">
-                      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-tint-violet text-[10px] font-bold text-tint-violet-fg">{EXAM_KIND_LABEL[e.kind]}</span>
+                      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-tint-violet text-[10px] font-bold text-tint-violet-fg">{examLabel(e)}</span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium">{e.title}</span>
                         <span className="flex items-center gap-1 text-xs text-muted-foreground">

@@ -83,13 +83,14 @@ async function session(browser, identifier, viewport = DESKTOP) {
     check("Detail ujian: kendali sesi & tata tertib", (await text(dosen.page)).includes("Kendali sesi") && (await text(dosen.page)).includes("Tata tertib"))
     await shot(dosen.page, "09-detail-ujian")
     await dosen.page.goto(`${BASE}/ujian-kelola/baru`, { waitUntil: "networkidle0" })
-    await dosen.page.select("#kind", "UAS")
+    // Kategori dinamis (Fase 3): perilaku dasar kategori UAS → SEB tercentang otomatis.
+    await dosen.page.select("#categoryId", "cat_uas")
     await sleep(200)
     const sebOn = await dosen.page.$eval("input[name=requireSeb]", (e) => e.checked)
-    await dosen.page.select("#kind", "KUIS")
+    await dosen.page.select("#categoryId", "cat_kuis")
     await sleep(200)
     const sebOff = await dosen.page.$eval("input[name=requireSeb]", (e) => e.checked)
-    check("Form ujian: UAS → SEB tercentang otomatis, Kuis → tidak", sebOn && !sebOff)
+    check("Form ujian: kategori UAS → SEB tercentang otomatis, Kuis → tidak", sebOn && !sebOff)
     await shot(dosen.page, "10-buat-ujian")
     check("Tidak ada error JavaScript (admin/dosen)", admin.errors.length + dosen.errors.length === 0, [...admin.errors, ...dosen.errors].join(" | "))
 

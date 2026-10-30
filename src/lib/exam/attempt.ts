@@ -6,11 +6,14 @@ import { autoGradeQuiz, quizPercent, type QuizAnswers } from "./grading"
 /** Toleransi keterlambatan jaringan saat ujian dikumpulkan otomatis. */
 export const ATTEMPT_GRACE_MS = 2 * 60 * 1000
 
-type TimedExam = { durationMinutes: number; endAt: Date | null }
+type TimedExam = { durationMinutes: number; endAt: Date | null; timed?: boolean }
 
-/** Batas akhir percobaan (epoch ms): durasi (+ tambahan waktu pengawas) atau jadwal tutup, mana yang lebih dulu. */
+/**
+ * Batas akhir percobaan (epoch ms): durasi (+ tambahan waktu pengawas) atau jadwal
+ * tutup, mana yang lebih dulu. Tanpa durasi (timed=false) dan tanpa jadwal tutup = Infinity.
+ */
 export function attemptDeadline(exam: TimedExam, attempt: { startedAt: Date; extraMinutes: number }) {
-  const byDuration = attempt.startedAt.getTime() + (exam.durationMinutes + attempt.extraMinutes) * 60_000
+  const byDuration = exam.timed === false ? Infinity : attempt.startedAt.getTime() + (exam.durationMinutes + attempt.extraMinutes) * 60_000
   // Tambahan waktu pengawas juga melonggarkan jadwal tutup untuk peserta itu.
   const byEnd = exam.endAt ? exam.endAt.getTime() + attempt.extraMinutes * 60_000 : null
   return byEnd === null ? byDuration : Math.min(byDuration, byEnd)
@@ -31,7 +34,7 @@ export function sanitizeAnswers(raw: QuizAnswers, validIds: Set<string>) {
  */
 export async function finalizeAttempt(opts: {
   attemptId: string
-  exam: { id: string } & TimedExam
+  exam: { id: string; dueAt?: Date | null } & TimedExam
   answers?: QuizAnswers
   flagged?: string[]
   actorId: string
@@ -64,6 +67,8 @@ export async function finalizeAttempt(opts: {
       submittedAt: now,
       gradedAt: pendingEssay ? null : now,
       autoSubmitReason: opts.autoReason ?? (late ? "TIMEOUT" : null),
+      // Lewat tenggat tetap diterima (s.d. jadwal tutup), tetapi ditandai terlambat.
+      isLate: !!opts.exam.dueAt && now > opts.exam.dueAt,
     },
   })
   if (updated.count === 0) return null

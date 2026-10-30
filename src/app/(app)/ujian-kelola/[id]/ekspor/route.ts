@@ -5,7 +5,7 @@ import { FEATURE_DISABLED } from "@/lib/features/registry"
 import { getManagedExam } from "@/lib/data/access"
 import { loadExamReport } from "@/lib/data/exam-report"
 import { formatDateTime } from "@/lib/format"
-import { EXAM_KIND_LABEL } from "@/lib/labels"
+import { examLabel } from "@/lib/labels"
 
 /** Ekspor rekap nilai ujian ke Excel: sheet Nilai + sheet Analisis Butir. */
 export async function GET(_request: Request, { params }: RouteContext<"/ujian-kelola/[id]/ekspor">) {
@@ -20,10 +20,10 @@ export async function GET(_request: Request, { params }: RouteContext<"/ujian-ke
   const wb = new ExcelJS.Workbook()
   wb.creator = "SmartTest"
   const ws = wb.addWorksheet("Nilai")
-  ws.addRow([`${EXAM_KIND_LABEL[exam.kind]} — ${exam.title}`]).font = { bold: true, size: 13 }
+  ws.addRow([`${examLabel(exam)} — ${exam.title}`]).font = { bold: true, size: 13 }
   ws.addRow([`${exam.subject.code} · ${exam.subject.name} · durasi ${exam.durationMinutes} menit`])
   ws.addRow([])
-  const header = ws.addRow(["No", "Nama", "Username/NIM", "Email", "Status", "Percobaan", "Nilai terbaik", ...(exam.passingScore !== null ? ["Lulus"] : []), "Keluar halaman", "Dikumpulkan"])
+  const header = ws.addRow(["No", "Nama", "Username/NIM", "Email", "Status", "Percobaan", "Nilai terbaik", ...(exam.passingScore !== null ? ["Lulus"] : []), "Keluar halaman", "Dikumpulkan", "Terlambat"])
   header.font = { bold: true, color: { argb: "FFFFFFFF" } }
   header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF5B4FE9" } }
   report.rows.forEach((r, i) => {
@@ -39,6 +39,7 @@ export async function GET(_request: Request, { params }: RouteContext<"/ujian-ke
       ...(exam.passingScore !== null ? [r.passed === null ? "" : r.passed ? "Ya" : "Tidak"] : []),
       r.leaveCount,
       r.latest ? formatDateTime(r.latest.submittedAt) : "",
+      r.latest?.isLate ? "Ya" : "",
     ])
   })
   ws.columns.forEach((c, i) => (c.width = [5, 30, 16, 30, 18, 10, 12, 8, 14, 20][i] ?? 14))

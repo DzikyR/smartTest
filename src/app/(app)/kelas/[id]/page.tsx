@@ -9,7 +9,7 @@ import { listManagedSubjects } from "@/lib/data/access"
 import { participantExams } from "@/lib/data/participant"
 import { ACTIVE_STUDENT, getManagedClass, getMembership } from "@/lib/classes/access"
 import { EXAM_STATUS, examStatus } from "@/lib/exam/status"
-import { EXAM_KIND_LABEL } from "@/lib/labels"
+import { examLabel, WORK_TYPE_LABEL } from "@/lib/labels"
 import { formatDateTime, initials, toDateTimeInput } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { EmptyState, str, UrlTabs } from "@/components/shell/page-parts"
@@ -208,7 +208,7 @@ async function TeacherWork({ groupId }: { groupId: string }) {
   const exams = await db.exam.findMany({
     where: { groups: { some: { groupId } } },
     orderBy: [{ startAt: { sort: "desc", nulls: "first" } }, { createdAt: "desc" }],
-    select: { id: true, title: true, kind: true, publishedAt: true, sessionActive: true, startAt: true, endAt: true, _count: { select: { questions: true, attempts: true } } },
+    select: { id: true, title: true, kind: true, workType: true, dueAt: true, category: { select: { name: true } }, publishedAt: true, sessionActive: true, startAt: true, endAt: true, _count: { select: { questions: true, attempts: true } } },
   })
   if (exams.length === 0) return <EmptyState title="Belum ada ujian untuk kelas ini" description="Buat ujian lalu pilih kelas ini di bagian “Peserta”." />
   return (
@@ -225,7 +225,7 @@ async function TeacherWork({ groupId }: { groupId: string }) {
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{e.title}</span>
                   <span className="block truncate text-xs text-muted-foreground">
-                    {EXAM_KIND_LABEL[e.kind]} · {e._count.questions} soal · {e._count.attempts} percobaan{e.startAt ? ` · ${formatDateTime(e.startAt)}` : ""}
+                    {examLabel(e)} · {WORK_TYPE_LABEL[e.workType]} · {e._count.questions} soal{e.dueAt ? ` · tenggat ${formatDateTime(e.dueAt)}` : ""} · {e._count.attempts} percobaan{e.startAt ? ` · ${formatDateTime(e.startAt)}` : ""}
                   </span>
                 </span>
                 <span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", st.className)}>{st.label}</span>

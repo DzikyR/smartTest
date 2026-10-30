@@ -37,6 +37,7 @@ export async function getManagedExam(user: CurrentUser, examId: string) {
     where: { id: examId, subject: managedSubjects(user) },
     include: {
       subject: { select: { id: true, code: true, name: true, type: true } },
+      category: { select: { name: true } },
       groups: { select: { group: { select: { id: true, name: true } } } },
       _count: { select: { questions: true, attempts: true } },
     },
@@ -56,7 +57,7 @@ export function visibleExams(user: CurrentUser) {
 export async function getParticipantExam(user: CurrentUser, examId: string) {
   return db.exam.findFirst({
     where: { id: examId, ...visibleExams(user) },
-    include: { subject: { select: { code: true, name: true, type: true } }, _count: { select: { questions: true } } },
+    include: { subject: { select: { code: true, name: true, type: true } }, category: { select: { name: true } }, _count: { select: { questions: true } } },
   })
 }
 

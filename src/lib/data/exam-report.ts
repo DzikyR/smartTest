@@ -29,7 +29,7 @@ export const DISTRIBUTION_BUCKETS = ["0–9", "10–19", "20–29", "30–39", "
  * Rekap ujian: status tiap peserta (untuk pengawasan langsung), statistik
  * nilai, sebaran nilai, dan analisis butir soal.
  */
-export async function loadExamReport(exam: { id: string; openToAll: boolean; durationMinutes: number; endAt: Date | null; passingScore: number | null }) {
+export async function loadExamReport(exam: { id: string; openToAll: boolean; durationMinutes: number; timed: boolean; endAt: Date | null; passingScore: number | null }) {
   const [participants, attempts, questions] = await Promise.all([
     examParticipants(exam),
     db.attempt.findMany({
@@ -48,6 +48,7 @@ export async function loadExamReport(exam: { id: string; openToAll: boolean; dur
         lastSavedAt: true,
         deviceTokenHash: true,
         autoSubmitReason: true,
+        isLate: true,
         questionScores: true,
         answers: true,
       },

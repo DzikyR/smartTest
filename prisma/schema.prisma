@@ -48,6 +48,13 @@ enum ExamKind {
   LAINNYA
 }
 
+/// Jenis pekerjaan (ala Google Classroom). Semua memakai mesin ujian yang sama.
+enum WorkType {
+  QUIZ // Tugas Kuis: soal dari bank, dikoreksi otomatis/manual
+  QUESTION // Pertanyaan: satu soal, umumnya tanpa batas waktu pengerjaan
+  ASSIGNMENT // Tugas: instruksi + unggah berkas/teks, dinilai manual (Fase 3b)
+}
+
 enum AttemptStatus {
   IN_PROGRESS
   SUBMITTED // menunggu koreksi esai
@@ -308,6 +315,17 @@ model Exam {
   subject     Subject @relation(fields: [subjectId], references: [id], onDelete: Restrict)
   createdById String?
   createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  // --- Tugas ala Classroom (Fase 3) — semua berdefault agar ujian lama tetap sah ---
+  workType         WorkType      @default(QUIZ)
+  /// Kategori dinamis (Kuis, UTS, UAS, Tes, …); `kind` tetap diisi sesuai perilaku dasar kategori
+  categoryId       String?
+  category         ExamCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  /// Tenggat: kumpul setelah ini tetap diterima (s.d. endAt) tetapi ditandai terlambat
+  dueAt            DateTime?
+  /// false = tanpa batas durasi (durationMinutes diabaikan; batas hanya endAt)
+  timed            Boolean       @default(true)
+  /// Nilai maksimum Tugas (tanpa soal) — Fase 3b
+  maxPoints        Float?
 
   questions ExamQuestion[]
   groups    ExamGroup[]
@@ -316,6 +334,21 @@ model Exam {
   @@index([subjectId])
   @@index([startAt])
   @@map("exams")
+}
+
+/// Kategori/topik ujian yang dikelola Admin. `kind` = perilaku dasar (label lama,
+/// bawaan pengamanan: UTS/UAS → Safe Exam Browser).
+model ExamCategory {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  kind      ExamKind @default(LAINNYA)
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  exams Exam[]
+
+  @@map("exam_categories")
 }
 
 /// Soal di dalam ujian — salinan (snapshot) dari bank agar ujian tidak berubah bila bank diedit.
@@ -370,6 +403,8 @@ model Attempt {
   lastSavedAt      DateTime?
   deviceTokenHash  String?
   autoSubmitReason String?
+  /// Dikumpulkan setelah tenggat (Exam.dueAt)
+  isLate           Boolean       @default(false)
 
   examId     String
   exam       Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)

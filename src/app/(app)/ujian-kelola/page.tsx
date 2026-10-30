@@ -6,7 +6,7 @@ import { requireRole } from "@/lib/auth/dal"
 import { STAFF } from "@/lib/auth/roles"
 import { managedSubjects } from "@/lib/data/access"
 import { formatDateTime } from "@/lib/format"
-import { EXAM_KIND_LABEL } from "@/lib/labels"
+import { examLabel } from "@/lib/labels"
 import { EXAM_STATUS, examStatus, type ExamStatus } from "@/lib/exam/status"
 import { cn } from "@/lib/utils"
 import { EmptyState, PageHeader, str, UrlTabs } from "@/components/shell/page-parts"
@@ -31,6 +31,7 @@ export default async function ManageExamsPage({ searchParams }: PageProps<"/ujia
     orderBy: [{ startAt: { sort: "desc", nulls: "first" } }, { createdAt: "desc" }],
     include: {
       subject: { select: { code: true, name: true } },
+      category: { select: { name: true } },
       groups: { select: { group: { select: { name: true } } } },
       _count: { select: { questions: true } },
     },
@@ -80,7 +81,7 @@ export default async function ManageExamsPage({ searchParams }: PageProps<"/ujia
               <Link key={e.id} href={`/ujian-kelola/${e.id}`} className="group flex flex-col gap-4 rounded-2xl bg-card p-5 ring-1 ring-border/60 transition hover:ring-primary/40">
                 <div className="flex items-start gap-3">
                   <span className="flex size-12 shrink-0 flex-col items-center justify-center rounded-xl bg-primary text-primary-foreground">
-                    <span className="text-[10px] leading-none font-medium uppercase opacity-80">{EXAM_KIND_LABEL[e.kind].slice(0, 6)}</span>
+                    <span className="text-[10px] leading-none font-medium uppercase opacity-80">{examLabel(e).slice(0, 6)}</span>
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs text-muted-foreground">

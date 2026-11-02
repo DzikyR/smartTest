@@ -37,27 +37,25 @@ export default async function SubjectsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Mata Uji"
-        description={admin ? "Mata kuliah atau tes umum beserta dosen pengelolanya." : "Mata uji yang Anda kelola. Penambahan mata uji dilakukan oleh admin."}
+        description={admin ? "Mata kuliah atau tes umum beserta dosen pengelolanya." : "Mata uji yang Anda kelola. Buat mata uji untuk mulai menyusun bank soal dan ujian."}
         actions={
-          admin && (
-            <FormDialog
-              title="Tambah Mata Uji"
-              action={createSubject}
-              wide
-              trigger={
-                <Button className="rounded-xl">
-                  <Plus aria-hidden /> Tambah mata uji
-                </Button>
-              }
-            >
-              <SubjectFields lecturers={lecturers} />
-            </FormDialog>
-          )
+          <FormDialog
+            title="Tambah Mata Uji"
+            action={createSubject}
+            wide
+            trigger={
+              <Button className="rounded-xl">
+                <Plus aria-hidden /> Tambah mata uji
+              </Button>
+            }
+          >
+            <SubjectFields lecturers={lecturers} showLecturers={admin} />
+          </FormDialog>
         }
       />
 
       {subjects.length === 0 ? (
-        <EmptyState title="Belum ada mata uji" description={admin ? "Tambahkan mata kuliah atau tes umum, lalu tetapkan dosen pengelolanya." : "Hubungi admin agar Anda ditetapkan sebagai pengelola mata uji."} />
+        <EmptyState title="Belum ada mata uji" description={admin ? "Tambahkan mata kuliah atau tes umum, lalu tetapkan dosen pengelolanya." : "Tambahkan mata uji pertama Anda, lalu susun bank soal dan ujiannya."} />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {subjects.map((s) => (
@@ -88,9 +86,7 @@ export default async function SubjectsPage() {
                 <Link href={`/bank-soal?subject=${s.id}`} className={buttonVariants({ variant: "secondary", size: "sm", className: "rounded-lg" })}>
                   <Library aria-hidden /> Bank soal
                 </Link>
-                {admin && (
-                  <>
-                    <FormDialog
+                <FormDialog
                       title="Ubah Mata Uji"
                       action={updateSubject.bind(null, s.id)}
                       wide
@@ -100,7 +96,7 @@ export default async function SubjectsPage() {
                         </Button>
                       }
                     >
-                      <SubjectFields lecturers={lecturers} defaults={{ ...s, lecturerIds: s.lecturers.map((l) => l.user.id) }} />
+                      <SubjectFields lecturers={lecturers} showLecturers={admin} defaults={{ ...s, lecturerIds: s.lecturers.map((l) => l.user.id) }} />
                     </FormDialog>
                     <ActionButton action={setSubjectActive.bind(null, s.id, !s.isActive)} variant="ghost" size="icon-sm" aria-label={s.isActive ? "Nonaktifkan" : "Aktifkan"} title={s.isActive ? "Nonaktifkan" : "Aktifkan"}>
                       <Power className={s.isActive ? "" : "text-emerald-600"} />
@@ -117,8 +113,6 @@ export default async function SubjectsPage() {
                         </Button>
                       }
                     />
-                  </>
-                )}
               </div>
             </article>
           ))}

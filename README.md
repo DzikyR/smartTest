@@ -9,7 +9,7 @@ Platform **ujian online berbasis komputer (CBT)** untuk kuis, UTS, UAS, try out,
 |---|---|
 | Super Admin | Seluruh sistem, termasuk mengelola akun Admin & melihat log aktivitas |
 | Admin | Pengguna (dosen & peserta), mata uji, kelompok peserta, semua ujian |
-| Dosen | Bank soal & ujian pada mata uji yang ia kelola, koreksi esai, pengawasan |
+| Dosen (Pengajar) | Membuat mata uji sendiri tanpa persetujuan admin (otomatis menjadi pengelolanya), bank soal & ujian pada mata uji yang ia kelola, koreksi esai, pengawasan |
 | Peserta | Mengerjakan ujian yang ditujukan untuknya, melihat hasil |
 
 **Mata uji** — *Mata Kuliah* atau *Umum* (tes masuk, TOEFL, psikotes, pelatihan), masing-masing dengan dosen pengelola.

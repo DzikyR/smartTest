@@ -42,7 +42,7 @@ export default async function QuestionBankPage({ searchParams }: PageProps<"/ban
     return (
       <div className="flex flex-col gap-6">
         <PageHeader title="Bank Soal" />
-        <EmptyState title="Belum ada mata uji" description="Bank soal dikelola per mata uji. Admin perlu menambahkan mata uji dan menetapkan Anda sebagai pengelola." />
+        <EmptyState title="Belum ada mata uji" description="Bank soal dikelola per mata uji. Buat mata uji terlebih dahulu." action={<Link href="/mata-uji" className={buttonVariants({ className: "rounded-xl" })}>Buat mata uji</Link>} />
       </div>
     )
   }

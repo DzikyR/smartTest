@@ -5,9 +5,12 @@ import { Textarea } from "@/components/ui/textarea"
 
 export function SubjectFields({
   lecturers,
+  showLecturers = true,
   defaults,
 }: {
   lecturers: { id: string; name: string; username: string | null }[]
+  /** Hanya admin yang menunjuk pengelola; pengajar otomatis menjadi pengelola mata uji buatannya. */
+  showLecturers?: boolean
   defaults?: { code: string; name: string; type: string; description: string | null; lecturerIds: string[] }
 }) {
   return (
@@ -29,7 +32,7 @@ export function SubjectFields({
       <FormField name="description" label="Deskripsi (opsional)">
         <Textarea id="description" name="description" defaultValue={defaults?.description ?? ""} rows={2} maxLength={2000} />
       </FormField>
-      <fieldset className="flex flex-col gap-2">
+      {showLecturers && <fieldset className="flex flex-col gap-2">
         <legend className="mb-1 text-sm font-medium">Dosen pengelola</legend>
         <p className="-mt-1 text-xs text-muted-foreground">Dosen terpilih dapat mengelola bank soal & ujian mata uji ini.</p>
         {lecturers.length === 0 ? (
@@ -44,7 +47,7 @@ export function SubjectFields({
             ))}
           </div>
         )}
-      </fieldset>
+      </fieldset>}
     </>
   )
 }

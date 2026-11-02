@@ -21,7 +21,7 @@ export default async function NewExamPage({ searchParams }: PageProps<"/ujian-ke
     db.group.findMany({ where: { AND: [{ archivedAt: null }, targetableClasses(user)] }, orderBy: { name: "asc" }, select: { id: true, name: true, _count: { select: { members: { where: ACTIVE_STUDENT } } } } }),
     db.examCategory.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }], select: { id: true, name: true, kind: true } }),
   ])
-  if (subjects.length === 0) return <EmptyState title="Belum ada mata uji yang Anda kelola" description="Admin perlu menambahkan mata uji dan menetapkan Anda sebagai pengelola." />
+  if (subjects.length === 0) return <EmptyState title="Belum ada mata uji yang Anda kelola" description="Ujian dibuat di dalam mata uji. Buat mata uji terlebih dahulu." action={<Link href="/mata-uji" className={buttonVariants({ className: "rounded-xl" })}>Buat mata uji</Link>} />
   const pre = subjects.find((s) => s.id === str(sp.subject))
 
   return (

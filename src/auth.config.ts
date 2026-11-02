@@ -41,7 +41,9 @@ export const authConfig = {
       const area = findProtectedArea(pathname)
       if (!area) return true
       if (!role) return false // → /login?callbackUrl=...
-      if (!area.roles.includes(role)) return NextResponse.redirect(new URL(HOME, request.nextUrl))
+      // Role di JWT bisa basi (mis. peserta baru dinaikkan admin jadi pengajar setelah login),
+      // jadi ketidakcocokan role tidak dialihkan di sini: DAL membaca role terkini dari database
+      // dan mengalihkan ke HOME bila memang tidak berhak.
       return true
     },
   },

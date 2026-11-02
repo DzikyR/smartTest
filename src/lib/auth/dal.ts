@@ -3,7 +3,7 @@ import { cache } from "react"
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { db } from "@/lib/db"
-import { HOME, type Role } from "@/lib/auth/roles"
+import { HOME, SESSION_EXPIRED_URL, type Role } from "@/lib/auth/roles"
 
 /**
  * Data Access Layer — sumber kebenaran otorisasi. Selalu membaca ulang user
@@ -37,7 +37,7 @@ export type CurrentUser = NonNullable<Awaited<ReturnType<typeof getCurrentUser>>
 /** Wajib login dengan salah satu role; pengguna berpassword sementara diarahkan menggantinya dulu. */
 export async function requireRole(...roles: Role[]): Promise<CurrentUser> {
   const user = await getCurrentUser()
-  if (!user) redirect("/login")
+  if (!user) redirect(SESSION_EXPIRED_URL)
   if (user.mustChangePassword) redirect("/ganti-password")
   if (roles.length > 0 && !roles.includes(user.role)) redirect(HOME)
   return user

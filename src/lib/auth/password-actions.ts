@@ -1,5 +1,6 @@
 "use server"
 
+import { SESSION_EXPIRED_URL } from "@/lib/auth/roles"
 import bcrypt from "bcryptjs"
 import { redirect } from "next/navigation"
 import { signOut } from "@/auth"
@@ -17,7 +18,7 @@ import { fail, type ActionResult } from "@/lib/action-result"
 export async function changePassword(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
   // Bukan requireRole: halaman ini justru tujuan redirect bagi mustChangePassword.
   const actor = await getCurrentUser()
-  if (!actor) redirect("/login")
+  if (!actor) redirect(SESSION_EXPIRED_URL)
 
   const current = String(formData.get("current") ?? "")
   const next = String(formData.get("next") ?? "")

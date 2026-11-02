@@ -57,3 +57,7 @@ export function safeCallbackUrl(value: unknown, fallback: string) {
     return fallback
   }
 }
+
+/** Penanda: JWT masih ada, tetapi sesinya sudah dicabut di database. */
+export const SESSION_EXPIRED_PARAM = "expired"
+export const SESSION_EXPIRED_URL = `/login?${SESSION_EXPIRED_PARAM}=1`

@@ -1,6 +1,6 @@
 import type { NextAuthConfig } from "next-auth"
 import { NextResponse } from "next/server"
-import { HOME, findProtectedArea } from "@/lib/auth/roles"
+import { HOME, SESSION_EXPIRED_PARAM, findProtectedArea } from "@/lib/auth/roles"
 
 /**
  * Konfigurasi ringan tanpa akses database — dipakai Proxy untuk pemeriksaan
@@ -32,7 +32,10 @@ export const authConfig = {
 
       // Halaman khusus tamu: pengguna yang sudah login langsung ke dashboard.
       if (pathname === "/login" || pathname === "/daftar" || pathname === "/lupa-password") {
-        if (role) return NextResponse.redirect(new URL(HOME, request.nextUrl))
+        // JWT masih ada tetapi sesinya dicabut di database (lihat dal.ts): tampilkan form masuk.
+        // Tanpa pengecualian ini /dashboard dan /login saling mengalihkan tanpa henti.
+        const expired = pathname === "/login" && request.nextUrl.searchParams.has(SESSION_EXPIRED_PARAM)
+        if (role && !expired) return NextResponse.redirect(new URL(HOME, request.nextUrl))
         return true
       }
       const area = findProtectedArea(pathname)

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import { Suspense } from "react"
 import { KeyRound, ShieldAlert } from "lucide-react"
 import { getCurrentUser } from "@/lib/auth/dal"
+import { SESSION_EXPIRED_URL } from "@/lib/auth/roles"
 import { PasswordForm } from "@/components/password-form"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -32,7 +33,7 @@ export default function ChangePasswordPage() {
 
 async function Section() {
   const user = await getCurrentUser()
-  if (!user) redirect("/login")
+  if (!user) redirect(SESSION_EXPIRED_URL)
   return (
     <div className="flex flex-col gap-4">
       {user.mustChangePassword && (

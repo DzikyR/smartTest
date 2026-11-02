@@ -319,6 +319,11 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
     await act(new Jar(), "/reset-password", R, "resetPasswordWithToken", [token, PREV, form({ password: NEW_PW, confirm: NEW_PW })])
     check("Reset berhasil → password baru bisa dipakai, password lama tidak", !!(await sessionOf(await login(NEW.email, NEW_PW))) && !(await sessionOf(await login(NEW.email, NEW.password))))
     check("Reset mencabut sesi lama di perangkat lain", !(await html(guest, "/profil")).includes(NEW.email))
+    // Regresi: JWT lama + sesi dicabut dulu membuat /dashboard <-> /login saling mengalihkan tanpa henti
+    check("Sesi dicabut: halaman terlindung mengarah ke /login?expired=1", (await html(guest, "/dashboard")).includes("/login?expired=1"))
+    const staleLogin = await get(guest, "/login?expired=1")
+    check("Sesi dicabut: /login?expired=1 tampil, tidak dialihkan balik (putus loop)", staleLogin.status === 200 && (await staleLogin.text()).includes("Sesi Anda telah berakhir"), staleLogin.status)
+    check("Sesi aktif: /login biasa tetap dialihkan ke dashboard", (await get(await login(NEW.email, NEW_PW), "/login")).status === 307)
     r = await act(new Jar(), "/reset-password", R, "resetPasswordWithToken", [token, PREV, form({ password: "LagiLagi2026xyz", confirm: "LagiLagi2026xyz" })])
     check("Token yang sudah dipakai → ditolak", r?.ok === false && /tidak valid|kedaluwarsa|dipakai/.test(r.error), JSON.stringify(r))
     since = Date.now()

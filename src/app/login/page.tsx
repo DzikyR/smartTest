@@ -14,6 +14,7 @@ export const metadata: Metadata = { title: "Masuk" }
 /** Pesan dari redirect (?reset=1, ?error=google_…). */
 const NOTICES: Record<string, { ok?: boolean; text: string }> = {
   reset: { ok: true, text: "Password berhasil diatur ulang. Silakan masuk dengan password baru." },
+  expired: { text: "Sesi Anda telah berakhir. Silakan masuk kembali." },
   google_disabled: { text: "Masuk dengan Google sedang dinonaktifkan." },
   google_unverified: { text: "Email akun Google Anda belum terverifikasi." },
   google_inactive: { text: "Akun Anda dinonaktifkan. Hubungi admin." },
@@ -45,7 +46,7 @@ async function LoginWithCallback({ searchParams, submitLabel, google }: { search
   const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)
   const callbackUrl = safeCallbackUrl(first(sp.callbackUrl), "") || undefined
   const error = first(sp.error)
-  const notice = first(sp.reset) ? NOTICES.reset : error ? (NOTICES[error] ?? (error.startsWith("google") || error === "AccessDenied" ? { text: "Masuk dengan Google gagal. Coba lagi." } : null)) : null
+  const notice = first(sp.reset) ? NOTICES.reset : first(sp.expired) ? NOTICES.expired : error ? (NOTICES[error] ?? (error.startsWith("google") || error === "AccessDenied" ? { text: "Masuk dengan Google gagal. Coba lagi." } : null)) : null
 
   return (
     <div className="flex flex-col gap-4">

@@ -77,13 +77,16 @@ export async function startExam(examId: string, _prev: ActionResult, formData: F
 
   const questions = await db.examQuestion.findMany({ where: { examId }, orderBy: [{ order: "asc" }, { id: "asc" }], select: { id: true, options: true } })
   const layout = buildLayout(questions, exam)
+  // Nomor dari percobaan tertinggi, bukan jumlah: percobaan yang direset pengawas sudah dihapus.
+  const last = await db.attempt.aggregate({ where: { examId, userId: user.id }, _max: { attemptNo: true } })
+  const attemptNo = (last._max.attemptNo ?? 0) + 1
   try {
-    const attempt = await db.attempt.create({ data: { examId, userId: user.id, attemptNo: done + 1, layout, sessionId: session?.id ?? null }, select: { id: true } })
+    const attempt = await db.attempt.create({ data: { examId, userId: user.id, attemptNo, layout, sessionId: session?.id ?? null }, select: { id: true } })
     if (exam.lockDevice) await db.attempt.update({ where: { id: attempt.id }, data: { deviceTokenHash: await bindDevice(attempt.id) } })
   } catch (e) {
     if (prismaCode(e) !== "P2002") throw e // klik ganda
   }
-  await audit("EXAM_STARTED", { userId: user.id, entity: "Exam", entityId: examId, metadata: { attempt: done + 1 } })
+  await audit("EXAM_STARTED", { userId: user.id, entity: "Exam", entityId: examId, metadata: { attempt: attemptNo } })
   refresh()
   return ok()
 }

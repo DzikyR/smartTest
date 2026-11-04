@@ -14,7 +14,8 @@ import { removeStoredFiles } from "@/lib/submissions/storage"
 import { appendExamQuestions, editableExam } from "@/lib/data/exam-questions"
 import { fail, formObject, ok, zodFail, type ActionResult } from "@/lib/action-result"
 import { checkbox, optionalLocalDateTime, optionalNumber, optionalText } from "@/lib/validation"
-import { finalizeAttempt, isPastDeadline } from "@/lib/exam/attempt"
+import { attemptDeadline, finalizeAttempt, isPastDeadline } from "@/lib/exam/attempt"
+import { reopenedStartedAt } from "@/lib/exam/reopen"
 import { MAX_QUESTIONS_PER_TASK, parseQuestionForm } from "@/lib/exam/question-input"
 import { parseConfigKeys, parseIpList } from "@/lib/exam/security"
 import { customRulesError } from "@/lib/exam/rules"
@@ -347,6 +348,80 @@ export async function resetDevice(attemptId: string): Promise<ActionResult> {
   await audit("ATTEMPT_DEVICE_RESET", { userId: user.id, entity: "Attempt", entityId: attemptId, severity: "WARNING" })
   refresh()
   return ok(`Perangkat ${attempt.user.name} direset — dapat melanjutkan dari perangkat lain.`)
+}
+
+const RESET_DENIED = "Percobaan tidak ditemukan, bukan percobaan terakhir peserta, atau di luar kewenangan Anda."
+
+/** Hanya percobaan terakhir peserta (yang berjalan, atau yang terakhir dikumpulkan) yang boleh direset. */
+async function latestManagedAttempt(user: CurrentUser, attemptId: string) {
+  const attempt = await db.attempt.findFirst({
+    where: { id: attemptId, exam: { subject: managedSubjects(user) } },
+    include: { exam: { select: { id: true, durationMinutes: true, timed: true, endAt: true, workType: true } }, user: { select: { name: true } } },
+  })
+  if (!attempt || attempt.exam.workType === "ASSIGNMENT") return null
+  const newer = await db.attempt.count({ where: { examId: attempt.examId, userId: attempt.userId, attemptNo: { gt: attempt.attemptNo } } })
+  return newer ? null : attempt
+}
+
+/**
+ * Reset lunak: percobaan dibuka kembali dengan jawaban tersimpan, sisa waktu dikembalikan
+ * (lihat reopenedStartedAt), dan perangkat dilepas. Untuk percobaan yang sudah dikumpulkan
+ * (mis. otomatis karena pelanggaran) nilai & hitungan pelanggaran ikut dihapus.
+ */
+export async function reopenAttempt(attemptId: string): Promise<ActionResult> {
+  const user = await requireRole(...STAFF)
+  const attempt = await latestManagedAttempt(user, attemptId)
+  if (!attempt) return fail(RESET_DENIED)
+  const { exam } = attempt
+  if (exam.endAt && Date.now() >= exam.endAt.getTime() + attempt.extraMinutes * 60_000) {
+    return fail("Jadwal tutup ujian sudah lewat. Perpanjang jadwal tutup lewat menu Ubah, lalu ulangi reset.")
+  }
+  const finished = attempt.status !== "IN_PROGRESS"
+  const startedAt = reopenedStartedAt(attempt, exam)
+  const updated = await db.attempt.updateMany({
+    where: { id: attempt.id, status: attempt.status },
+    data: {
+      status: "IN_PROGRESS",
+      startedAt,
+      deviceTokenHash: null,
+      // Tab peserta yang masih terbuka mengirim hitungan lamanya; hanya percobaan selesai yang aman dinolkan.
+      ...(finished
+        ? { submittedAt: null, gradedAt: null, gradedById: null, score: null, questionScores: Prisma.DbNull, feedback: null, autoSubmitReason: null, isLate: false, leaveCount: 0 }
+        : {}),
+    },
+  })
+  if (updated.count === 0) return fail("Status percobaan baru saja berubah. Muat ulang halaman, lalu coba lagi.")
+  await audit("ATTEMPT_REOPENED", {
+    userId: user.id,
+    entity: "Exam",
+    entityId: exam.id,
+    severity: "WARNING",
+    metadata: { participant: attempt.userId, attempt: attempt.attemptNo, previousStatus: attempt.status, previousScore: attempt.score, leaveCount: attempt.leaveCount, autoSubmitReason: attempt.autoSubmitReason },
+  })
+  refresh()
+  const left = attemptDeadline(exam, { startedAt, extraMinutes: attempt.extraMinutes }) - Date.now()
+  const time = Number.isFinite(left) ? ` Sisa waktu ±${Math.max(0, Math.round(left / 60_000))} menit.` : ""
+  const hint = left < 60_000 ? " Waktunya hampir habis, tambahkan waktu agar peserta sempat menjawab." : ""
+  return ok(`${attempt.user.name} dapat melanjutkan ujian dengan jawaban tersimpan.${time}${hint}`)
+}
+
+/** Reset total: percobaan terakhir dihapus sehingga peserta memulai dari awal (soal diacak ulang, kesempatan dikembalikan). */
+export async function resetAttempt(attemptId: string): Promise<ActionResult> {
+  const user = await requireRole(...STAFF)
+  const attempt = await latestManagedAttempt(user, attemptId)
+  if (!attempt) return fail(RESET_DENIED)
+  const deleted = await db.attempt.deleteMany({ where: { id: attempt.id, status: attempt.status } })
+  if (deleted.count === 0) return fail("Status percobaan baru saja berubah. Muat ulang halaman, lalu coba lagi.")
+  const answered = Object.values((attempt.answers as Record<string, string> | null) ?? {}).filter((v) => String(v).trim()).length
+  await audit("ATTEMPT_RESET", {
+    userId: user.id,
+    entity: "Exam",
+    entityId: attempt.exam.id,
+    severity: "WARNING",
+    metadata: { participant: attempt.userId, attempt: attempt.attemptNo, previousStatus: attempt.status, previousScore: attempt.score, answered, leaveCount: attempt.leaveCount, autoSubmitReason: attempt.autoSubmitReason },
+  })
+  refresh()
+  return ok(`Percobaan ${attempt.user.name} dihapus — peserta dapat memulai ujian dari awal.`)
 }
 
 /** Akhiri percobaan berjalan: satu peserta, yang waktunya habis, atau semua. */

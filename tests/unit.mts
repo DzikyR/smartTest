@@ -7,6 +7,7 @@ const { buildLayout, applyLayout } = await import(src("exam/layout.ts"))
 const { ipAllowed, parseIpList, sebKeyHash, sebHashValid } = await import(src("exam/security.ts"))
 const { examRules, parseCustomRules, customRulesError } = await import(src("exam/rules.ts"))
 const { autoGradeQuiz, quizPercent } = await import(src("exam/grading.ts"))
+const { reopenedStartedAt } = await import(src("exam/reopen.ts"))
 
 let pass = 0, fail = 0
 const check = (n: string, ok: boolean, x: unknown = "") => { ok ? pass++ : fail++; console.log(`${ok ? "PASS" : "FAIL"}  ${n}${!ok ? "  — " + JSON.stringify(x) : ""}`) }
@@ -49,6 +50,12 @@ const qs = [
 const g = autoGradeQuiz(qs, { a: "b", b: "false", c: "esai" })
 check("Koreksi otomatis PG+BS, esai menunggu", g.scores.a === 2 && g.scores.b === 1 && g.pendingEssay)
 check("Persentase (2+1+4)/8 = 87.5", quizPercent(qs, { a: 2, b: 1, c: 4 }) === 87.5)
+
+// ---- Reset lunak: sisa waktu dikembalikan ----
+const t0 = new Date("2026-11-04T08:00:00Z"), now = new Date("2026-11-04T10:00:00Z"), min = (m: number) => new Date(t0.getTime() + m * 60_000)
+check("Reset lunak: terpakai 20 mnt (simpan terakhir) → mulai = sekarang − 20 mnt", reopenedStartedAt({ startedAt: t0, lastSavedAt: min(20), extraMinutes: 0 }, { durationMinutes: 90 }, now).getTime() === now.getTime() - 20 * 60_000)
+check("Reset lunak: belum pernah tersimpan → waktu penuh", reopenedStartedAt({ startedAt: t0, lastSavedAt: null, extraMinutes: 0 }, { durationMinutes: 90 }, now).getTime() === now.getTime())
+check("Reset lunak: terpakai dibatasi durasi + tambahan", reopenedStartedAt({ startedAt: t0, lastSavedAt: min(200), extraMinutes: 10 }, { durationMinutes: 90 }, now).getTime() === now.getTime() - 100 * 60_000)
 let seed = 11
 const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
 const lq = Array.from({ length: 8 }, (_, i) => ({ id: `q${i}`, options: [{ id: "a", text: "A" }, { id: "b", text: "B" }, { id: "c", text: "C" }] }))

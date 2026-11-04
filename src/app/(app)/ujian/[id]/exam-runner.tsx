@@ -219,8 +219,17 @@ export function ExamRunner({
 
   // Catat saat peserta meninggalkan halaman ujian.
   useEffect(() => {
+    // Muat ulang/tutup halaman (mis. koneksi putus-nyambung) juga memicu "hidden" — bukan pelanggaran.
+    // Browser memicu pagehide sebelum visibilitychange saat halaman dibongkar.
+    let unloading = false
+    const onPageHide = () => {
+      unloading = true
+    }
+    const onPageShow = () => {
+      unloading = false // kembali dari back-forward cache
+    }
     const onVisibility = () => {
-      if (submitted.current) return
+      if (submitted.current || unloading) return
       if (document.visibilityState === "hidden") recordViolation()
       else {
         const limit = security.maxLeaves ? ` Batas: ${security.maxLeaves}× — setelah itu ujian dikumpulkan otomatis.` : ""
@@ -232,9 +241,13 @@ export function ExamRunner({
     }
     document.addEventListener("visibilitychange", onVisibility)
     window.addEventListener("beforeunload", onBeforeUnload)
+    window.addEventListener("pagehide", onPageHide)
+    window.addEventListener("pageshow", onPageShow)
     return () => {
       document.removeEventListener("visibilitychange", onVisibility)
       window.removeEventListener("beforeunload", onBeforeUnload)
+      window.removeEventListener("pagehide", onPageHide)
+      window.removeEventListener("pageshow", onPageShow)
     }
   }, [recordViolation, security.maxLeaves])
 

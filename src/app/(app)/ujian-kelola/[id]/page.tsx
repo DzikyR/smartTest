@@ -8,6 +8,7 @@ import {
   Clock,
   Copy,
   Download,
+  Eraser,
   Eye,
   EyeOff,
   FileQuestion,
@@ -17,6 +18,7 @@ import {
   Library,
   Pencil,
   Play,
+  RotateCcw,
   ScrollText,
   ShieldCheck,
   Smartphone,
@@ -60,6 +62,8 @@ import {
   duplicateExam,
   extendTime,
   finishAttempts,
+  reopenAttempt,
+  resetAttempt,
   resetDevice,
   setExamPublished,
   setSessionActive,
@@ -576,6 +580,37 @@ function ParticipantsTab({ exam, report }: { exam: Exam; report: Report }) {
                               trigger={
                                 <Button variant="ghost" size="icon-sm" aria-label={`Akhiri ujian ${user.name}`} title="Akhiri">
                                   <TimerOff className="text-destructive" />
+                                </Button>
+                              }
+                            />
+                          </>
+                        )}
+                        {exam.workType !== "ASSIGNMENT" && (running ?? latest) && (
+                          <>
+                            <ConfirmAction
+                              action={reopenAttempt.bind(null, (running ?? latest)!.id)}
+                              title={`Reset lunak ${user.name}?`}
+                              description={
+                                running
+                                  ? "Peserta melanjutkan dengan jawaban tersimpan. Waktu yang hilang sejak simpanan terakhir dikembalikan dan perangkat dilepas (bisa pindah perangkat)."
+                                  : "Ujian yang sudah dikumpulkan dibuka kembali: nilai & hitungan pelanggaran dihapus, peserta melanjutkan soal yang belum dikerjakan dengan jawaban tersimpan dan sisa waktunya."
+                              }
+                              confirmLabel="Buka kembali"
+                              trigger={
+                                <Button variant="ghost" size="icon-sm" aria-label={`Reset lunak ${user.name}`} title="Reset lunak — lanjutkan">
+                                  <RotateCcw />
+                                </Button>
+                              }
+                            />
+                            <ConfirmAction
+                              action={resetAttempt.bind(null, (running ?? latest)!.id)}
+                              title={`Reset total ${user.name}?`}
+                              description="Percobaan terakhir beserta jawaban dan nilainya dihapus permanen. Peserta memulai ujian dari awal dengan soal yang diacak ulang dan kesempatannya dikembalikan."
+                              confirmLabel="Reset dari awal"
+                              destructive
+                              trigger={
+                                <Button variant="ghost" size="icon-sm" aria-label={`Reset total ${user.name}`} title="Reset total — mulai dari awal">
+                                  <Eraser className="text-destructive" />
                                 </Button>
                               }
                             />

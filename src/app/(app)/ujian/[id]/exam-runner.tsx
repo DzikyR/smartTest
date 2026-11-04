@@ -53,6 +53,8 @@ const AUTOSAVE_DEBOUNCE_MS = 2000
 const AUTOSAVE_INTERVAL_MS = 30_000
 /** Dua pelanggaran berdekatan (mis. Alt+Tab yang juga keluar layar penuh) dihitung sekali. */
 const VIOLATION_DEBOUNCE_MS = 1500
+/** Jeda setelah dialog "Tinggalkan situs?" dibatalkan sebelum pelanggaran dihitung lagi. */
+const UNLOAD_CANCEL_MS = 1000
 const TYPE_NAME: Record<Question["type"], string> = { MULTIPLE_CHOICE: "Pilihan ganda", TRUE_FALSE: "Benar/Salah", SHORT_ANSWER: "Isian singkat", ESSAY: "Esai" }
 
 const storageKey = (id: string) => `smarttest:exam:${id}`
@@ -140,6 +142,8 @@ export function ExamRunner({
   const dirty = useRef(false)
   const leaves = useRef(initialLeaveCount)
   const lastViolation = useRef(0)
+  // Halaman sedang dimuat ulang/ditutup (mis. koneksi putus-nyambung): keluar layar penuh & "hidden" bukan pelanggaran.
+  const unloading = useRef(false)
   const latest = useRef({ answers: initialAnswers, flagged: initialFlagged })
   useEffect(() => {
     latest.current = { answers, flagged }
@@ -188,7 +192,7 @@ export function ExamRunner({
   }, [saveAction, router, attemptId])
 
   const recordViolation = useCallback(() => {
-    if (submitted.current) return
+    if (submitted.current || unloading.current) return
     const now = Date.now()
     if (now - lastViolation.current < VIOLATION_DEBOUNCE_MS) return
     lastViolation.current = now
@@ -219,17 +223,18 @@ export function ExamRunner({
 
   // Catat saat peserta meninggalkan halaman ujian.
   useEffect(() => {
-    // Muat ulang/tutup halaman (mis. koneksi putus-nyambung) juga memicu "hidden" — bukan pelanggaran.
-    // Browser memicu pagehide sebelum visibilitychange saat halaman dibongkar.
-    let unloading = false
+    // Saat muat ulang, browser menampilkan dialog "Tinggalkan situs?" (Chrome keluar dari layar penuh untuknya),
+    // lalu memicu pagehide sebelum visibilitychange. Bila dialog dibatalkan, penanda dilepas setelah jeda singkat.
+    let cancelTimer: ReturnType<typeof setTimeout> | undefined
     const onPageHide = () => {
-      unloading = true
+      clearTimeout(cancelTimer)
+      unloading.current = true
     }
     const onPageShow = () => {
-      unloading = false // kembali dari back-forward cache
+      unloading.current = false // kembali dari back-forward cache
     }
     const onVisibility = () => {
-      if (submitted.current || unloading) return
+      if (submitted.current || unloading.current) return
       if (document.visibilityState === "hidden") recordViolation()
       else {
         const limit = security.maxLeaves ? ` Batas: ${security.maxLeaves}× — setelah itu ujian dikumpulkan otomatis.` : ""
@@ -237,13 +242,18 @@ export function ExamRunner({
       }
     }
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (!submitted.current) e.preventDefault()
+      if (submitted.current) return
+      e.preventDefault()
+      unloading.current = true
+      clearTimeout(cancelTimer)
+      cancelTimer = setTimeout(() => (unloading.current = false), UNLOAD_CANCEL_MS)
     }
     document.addEventListener("visibilitychange", onVisibility)
     window.addEventListener("beforeunload", onBeforeUnload)
     window.addEventListener("pagehide", onPageHide)
     window.addEventListener("pageshow", onPageShow)
     return () => {
+      clearTimeout(cancelTimer)
       document.removeEventListener("visibilitychange", onVisibility)
       window.removeEventListener("beforeunload", onBeforeUnload)
       window.removeEventListener("pagehide", onPageHide)

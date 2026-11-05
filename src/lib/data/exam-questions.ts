@@ -3,6 +3,7 @@ import { Prisma } from "@/generated/prisma/client"
 import { db } from "@/lib/db"
 import { fail } from "@/lib/action-result"
 import { MAX_QUESTIONS_PER_TASK } from "@/lib/exam/question-input"
+import { invalidateExamQuestions } from "@/lib/exam/question-cache"
 import type { CurrentUser } from "@/lib/auth/dal"
 import { getManagedExam } from "./access"
 
@@ -34,5 +35,6 @@ export async function appendExamQuestions(examId: string, questions: CopyableQue
       sourceId: q.sourceId ?? null,
     })),
   })
+  invalidateExamQuestions(examId)
   return null
 }

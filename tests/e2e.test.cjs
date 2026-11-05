@@ -32,6 +32,8 @@ async function act(jar, page, file, name, args) {
   return result
 }
 const get = async (jar, path) => fetch(BASE + path, { headers: { cookie: jar?.header ?? "" }, redirect: "manual" })
+// Role tidak sesuai: dialihkan Proxy (3xx), atau oleh DAL halaman (200 berisi redirect ke dashboard, isi halaman tidak dikirim).
+const redirected = async (res) => (res.status >= 300 && res.status < 400) || (res.status === 200 && /NEXT_REDIRECT;[a-z]+;\/dashboard;/.test(await res.clone().text()))
 const html = async (jar, path) => (await get(jar, path)).text()
 const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/actions", U = "pengguna/actions", G = "kelompok/actions", F = "fitur/actions", S = "situs/actions", R = "auth/public-actions"
 
@@ -50,9 +52,9 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
   try {
     // ---------- RBAC dasar ----------
     let res = await get(p1, "/ujian-kelola")
-    check("Peserta membuka /ujian-kelola → dialihkan", res.status >= 300 && res.status < 400, res.status)
+    check("Peserta membuka /ujian-kelola → dialihkan", await redirected(res), res.status)
     res = await get(rina, "/admin/pengguna")
-    check("Dosen membuka /admin/pengguna → dialihkan", res.status >= 300 && res.status < 400, res.status)
+    check("Dosen membuka /admin/pengguna → dialihkan", await redirected(res), res.status)
 
     // ---------- Dosen: buat ujian (durasi diatur dosen) ----------
     const examForm = { subjectId: algo.id, title: "E2E Kuis Struktur Data", kind: "KUIS", durationMinutes: 30, maxAttempts: 1, questionsPerPage: 5, token: "abc12", lockDevice: "on", maxLeaves: 5, shuffleQuestions: "on", groupId: ifa.id }
@@ -226,7 +228,7 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
     const auditBefore = (await one(`select count(*)::int n from audit_logs where action in ('FEATURE_TOGGLED','FEATURE_RESET')`)).n
     const IMPOR_PAGE = "Periksa pratinjau sebelum disimpan", KELOMPOK_PAGE = "Kelompokkan peserta"
     res = await get(admin, "/admin/fitur")
-    check("Admin membuka /admin/fitur → dialihkan (khusus Super Admin)", res.status >= 300 && res.status < 400, res.status)
+    check("Admin membuka /admin/fitur → dialihkan (khusus Super Admin)", await redirected(res), res.status)
     r = await act(rina, "/admin/fitur", F, "setFeatureRole", ["bank-soal.impor", "DOSEN", false])
     check("Dosen memanggil aksi toggle langsung → ditolak", r?.ok !== true && !(await one(`select 1 from features`)), JSON.stringify(r))
     check("Super Admin melihat matriks fitur", (await html(sa, "/admin/fitur")).includes("Impor Soal Word/Excel"))

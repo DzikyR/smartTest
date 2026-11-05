@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge"
 import { buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { examQuestions } from "@/lib/exam/question-cache"
 import { saveProgress, startExam, submitExam } from "../actions"
 import { ExamRunner } from "./exam-runner"
 import { AssignmentView } from "./assignment-view"
@@ -48,7 +49,7 @@ export default async function TakeExamPage({ params }: PageProps<"/ujian/[id]">)
   if (runnerActive && running) {
     // Soal tanpa kunci jawaban, diurutkan sesuai tata letak acak milik percobaan ini.
     const questions = applyLayout(
-      await db.examQuestion.findMany({ where: { examId: id }, orderBy: [{ order: "asc" }, { id: "asc" }], select: { id: true, type: true, prompt: true, options: true, points: true } }),
+      await examQuestions(id), // cache bersama: mulai serentak = satu query per ujian
       isLayout(running.layout) ? running.layout : null
     )
     const profile = await db.user.findUnique({ where: { id: user.id }, select: { name: true, username: true } })

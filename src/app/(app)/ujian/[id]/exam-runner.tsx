@@ -51,6 +51,8 @@ const TF_OPTIONS = [
 const FONT_SIZES = ["text-sm", "text-base", "text-lg", "text-xl"] as const
 const AUTOSAVE_DEBOUNCE_MS = 2000
 const AUTOSAVE_INTERVAL_MS = 30_000
+/** Simpan berkala diacak ±5 dtk per peserta: yang mulai serentak tidak menyimpan pada detik yang sama. */
+const AUTOSAVE_JITTER_MS = 5_000
 /** Dua pelanggaran berdekatan (mis. Alt+Tab yang juga keluar layar penuh) dihitung sekali. */
 const VIOLATION_DEBOUNCE_MS = 1500
 /** Jeda setelah dialog "Tinggalkan situs?" dibatalkan sebelum pelanggaran dihitung lagi. */
@@ -211,12 +213,17 @@ export function ExamRunner({
 
   useEffect(() => {
     // Simpan berkala juga menyegarkan batas waktu (tambahan waktu dari pengawas).
-    const timer = setInterval(() => {
-      dirty.current = true
-      void saveNow()
-    }, AUTOSAVE_INTERVAL_MS)
+    let timer: ReturnType<typeof setTimeout>
+    const next = () => {
+      timer = setTimeout(() => {
+        dirty.current = true
+        void saveNow()
+        next()
+      }, AUTOSAVE_INTERVAL_MS + (Math.random() * 2 - 1) * AUTOSAVE_JITTER_MS)
+    }
+    next()
     return () => {
-      clearInterval(timer)
+      clearTimeout(timer)
       if (debounce.current) clearTimeout(debounce.current)
     }
   }, [saveNow])

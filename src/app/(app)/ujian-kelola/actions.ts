@@ -12,6 +12,7 @@ import { canManageSubject, getManagedExam, managedSubjects } from "@/lib/data/ac
 import { targetableClasses } from "@/lib/classes/access"
 import { removeStoredFiles } from "@/lib/submissions/storage"
 import { appendExamQuestions, editableExam } from "@/lib/data/exam-questions"
+import { invalidateExamQuestions } from "@/lib/exam/question-cache"
 import { fail, formObject, ok, zodFail, type ActionResult } from "@/lib/action-result"
 import { checkbox, optionalLocalDateTime, optionalNumber, optionalText } from "@/lib/validation"
 import { attemptDeadline, finalizeAttempt, isPastDeadline } from "@/lib/exam/attempt"
@@ -306,6 +307,7 @@ export async function updateExamQuestion(questionId: string, _prev: ActionResult
     where: { id: questionId },
     data: { type: data.type, prompt: data.prompt, points: data.points, order: data.order, options: data.options ?? Prisma.DbNull, answerKey: data.answerKey ?? Prisma.DbNull },
   })
+  invalidateExamQuestions(q.examId)
   refresh()
   return ok("Soal ujian disimpan.")
 }
@@ -317,6 +319,7 @@ export async function removeExamQuestions(examId: string, ids: string[]): Promis
   const n = await db.examQuestion.count({ where: { examId, id: { in: ids } } })
   if (exam.publishedAt && n >= exam._count.questions) return fail("Ujian terbit harus memiliki minimal satu soal.")
   await db.examQuestion.deleteMany({ where: { examId, id: { in: ids } } })
+  invalidateExamQuestions(examId)
   refresh()
   return ok(`${n} soal dikeluarkan dari ujian (bank soal tidak berubah).`)
 }

@@ -14,6 +14,7 @@ import { buildLayout } from "@/lib/exam/layout"
 import { attemptDeadline, finalizeAttempt, isPastDeadline, sanitizeAnswers } from "@/lib/exam/attempt"
 import { bindDevice, checkExamEnvironment, deviceState, OTHER_DEVICE } from "@/lib/exam/guard"
 import type { QuizAnswers } from "@/lib/exam/grading"
+import { examQuestionIds, examQuestions } from "@/lib/exam/question-cache"
 
 const NOT_FOUND = "Ujian tidak ditemukan atau tidak ditujukan untuk Anda."
 
@@ -75,7 +76,7 @@ export async function startExam(examId: string, _prev: ActionResult, formData: F
     }
   }
 
-  const questions = await db.examQuestion.findMany({ where: { examId }, orderBy: [{ order: "asc" }, { id: "asc" }], select: { id: true, options: true } })
+  const questions = await examQuestions(examId) // cache bersama: mulai serentak = satu query per ujian
   const layout = buildLayout(questions, exam)
   // Nomor dari percobaan tertinggi, bukan jumlah: percobaan yang direset pengawas sudah dihapus.
   const last = await db.attempt.aggregate({ where: { examId, userId: user.id }, _max: { attemptNo: true } })
@@ -132,7 +133,7 @@ export async function saveProgress(
   const answers = answersSchema.safeParse(rawAnswers)
   const flagged = flaggedSchema.safeParse(rawFlagged)
   if (!answers.success || !flagged.success) return fail("Format jawaban tidak valid.")
-  const valid = new Set((await db.examQuestion.findMany({ where: { examId: exam.id }, select: { id: true } })).map((q) => q.id))
+  const valid = await examQuestionIds(exam.id)
   // Jumlah keluar-halaman hanya boleh bertambah (tidak bisa direset klien).
   const leaves = Number.isInteger(leaveCount) ? Math.min(Math.max(leaveCount, attempt.leaveCount), 10_000) : attempt.leaveCount
   const savedAt = new Date()
@@ -147,10 +148,9 @@ export async function saveProgress(
     refresh()
     return ok(`Batas ${exam.maxLeaves}× meninggalkan halaman ujian tercapai — jawaban dikumpulkan otomatis.`, { savedAt: savedAt.toISOString(), terminated: true })
   }
-  // Batas waktu terbaru (pengawas dapat menambah waktu selama ujian berjalan).
-  // Satu sumber kebenaran: attemptDeadline (menghormati ujian tanpa durasi → Infinity).
-  const fresh = await db.attempt.findUnique({ where: { id: attempt.id }, select: { extraMinutes: true } })
-  return ok(undefined, { savedAt: savedAt.toISOString(), deadline: attemptDeadline(exam, { startedAt: attempt.startedAt, extraMinutes: fresh?.extraMinutes ?? 0 }) })
+  // Batas waktu terbaru (pengawas dapat menambah waktu selama ujian berjalan): extraMinutes
+  // baru saja dibaca di ownRunning pada permintaan ini. Satu sumber kebenaran: attemptDeadline.
+  return ok(undefined, { savedAt: savedAt.toISOString(), deadline: attemptDeadline(exam, attempt) })
 }
 
 export async function submitExam(attemptId: string, rawAnswers: QuizAnswers, rawFlagged: string[] = [], sebHash?: string): Promise<ActionResult<{ score: number | null }>> {

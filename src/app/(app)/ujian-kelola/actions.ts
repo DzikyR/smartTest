@@ -114,6 +114,7 @@ export async function createExam(_prev: ActionResult, formData: FormData) {
     select: { id: true },
   })
   await audit("EXAM_CREATED", { userId: user.id, entity: "Exam", entityId: exam.id, metadata: { kind: data.kind } })
+  refresh() // buang cache router: halaman daftar/ubah yang pernah dibuka tidak boleh menampilkan data lama
   redirect(data.workType === "ASSIGNMENT" ? `/ujian-kelola/${exam.id}` : `/ujian-kelola/${exam.id}?tab=soal`)
 }
 
@@ -130,6 +131,9 @@ export async function updateExam(examId: string, _prev: ActionResult, formData: 
     db.examGroup.createMany({ data: groups.map((groupId) => ({ examId, groupId })) }),
   ])
   await audit("EXAM_UPDATED", { userId: user.id, entity: "Exam", entityId: examId })
+  // Tanpa ini halaman Ubah yang pernah dibuka tersaji dari cache router dengan jam lama;
+  // bila disimpan lagi, jam lama menimpa jadwal yang benar.
+  refresh()
   redirect(`/ujian-kelola/${examId}`)
 }
 

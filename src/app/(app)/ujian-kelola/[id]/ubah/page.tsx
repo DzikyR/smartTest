@@ -37,6 +37,8 @@ export default async function EditExamPage({ params }: PageProps<"/ujian-kelola/
       </Link>
       <PageHeader title="Ubah Ujian" description="Perubahan durasi berlaku untuk peserta yang belum selesai; tambahan waktu per peserta diatur di tab Peserta." />
       <ExamForm
+        // isian datetime-local tidak terkendali: pasang ulang form bila data ujian berubah agar nilainya ikut baru
+        key={exam.updatedAt.getTime()}
         action={updateExam.bind(null, exam.id)}
         submitLabel="Simpan perubahan"
         subjects={subjects.map((s) => ({ id: s.id, label: `${s.code} · ${s.name}` }))}

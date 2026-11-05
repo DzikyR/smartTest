@@ -154,5 +154,16 @@ check("Google: akun dinonaktifkan → ditolak", decideGoogleLogin(gp, ON, { byGo
 check("Google: pendaftaran ditutup → akun baru ditolak, akun lama tetap bisa masuk", decideGoogleLogin(gp, { googleLogin: true, registrationOpen: false }, NONE).error === "google_closed" && decideGoogleLogin(gp, { googleLogin: true, registrationOpen: false }, { byGoogleId: null, byEmail: { id: "u1", isActive: true, googleId: null } }).action === "login")
 check("Google: dimatikan Super Admin → ditolak", decideGoogleLogin(gp, { googleLogin: false, registrationOpen: true }, NONE).error === "google_disabled")
 
+// ---- Monitoring ujian: status koneksi & format waktu ----
+const { liveState, formatAgo, formatRemaining, countAnswered } = await import(src("exam/monitoring.ts"))
+const T = 1_000_000_000
+check("Monitoring: sinyal 30 dtk lalu → online", liveState({ lastSeen: T - 30_000, expired: false }, T) === "online")
+check("Monitoring: 2 mnt tanpa sinyal → tersendat", liveState({ lastSeen: T - 120_000, expired: false }, T) === "lambat")
+check("Monitoring: 5 mnt tanpa sinyal → terputus", liveState({ lastSeen: T - 300_000, expired: false }, T) === "putus")
+check("Monitoring: lewat batas waktu → waktu habis (meski online)", liveState({ lastSeen: T, expired: true }, T) === "habis")
+check("Monitoring: format sinyal terakhir", formatAgo(3_000) === "baru saja" && formatAgo(45_000) === "45 dtk lalu" && formatAgo(130 * 60_000) === "2 j 10 mnt lalu")
+check("Monitoring: format sisa waktu", formatRemaining(Infinity) === "tanpa batas" && formatRemaining(-1) === "habis" && formatRemaining(30_000) === "< 1 mnt" && formatRemaining(90 * 60_000) === "1 j 30 mnt")
+check("Monitoring: jawaban kosong tidak dihitung", countAnswered({ a: "b", b: "", c: "  ", d: "teks" }) === 2 && countAnswered(null) === 0)
+
 console.log(`\n${pass} lulus, ${fail} gagal`)
 if (fail) process.exit(1)

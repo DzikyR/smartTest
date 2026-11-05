@@ -55,6 +55,12 @@ export const FEATURES = {
     category: "Administrasi",
     roles: ["ADMIN"],
   },
+  "admin.monitoring": {
+    name: "Monitoring Ujian Langsung",
+    description: "Pantau semua peserta yang sedang mengerjakan ujian: status koneksi, sisa waktu, jumlah terjawab, dan pelanggaran.",
+    category: "Administrasi",
+    roles: ["ADMIN"],
+  },
   "ujian.mulai": {
     name: "Memulai Ujian Baru",
     description: "Peserta memulai percobaan baru. Percobaan yang sedang berjalan tetap bisa dilanjutkan & dikumpulkan.",

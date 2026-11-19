@@ -35,6 +35,9 @@ import {
 import { ClassFields } from "../fields"
 import { CodeDisplay } from "./code-card"
 import { ClassPeopleCards } from "./people-cards"
+import { StudentMaterials, TeacherMaterials } from "./materials"
+import { TeacherGradebook } from "./gradebook"
+import { isFeatureEnabled } from "@/lib/features/access"
 import { qrDataUrl } from "@/lib/classes/qr"
 
 export const metadata: Metadata = { title: "Kelas" }
@@ -49,7 +52,7 @@ export default async function ClassPage({ params, searchParams }: PageProps<"/ke
   if (user.role !== "PESERTA") {
     const cls = await getManagedClass(user, id)
     if (!cls) notFound()
-    return <TeacherView user={user} cls={cls} tab={tab === "anggota" || tab === "pengaturan" ? tab : "tugas"} />
+    return <TeacherView user={user} cls={cls} tab={tab === "materi" || tab === "nilai" || tab === "anggota" || tab === "pengaturan" ? tab : "tugas"} />
   }
 
   // Peserta: hanya anggota (bukan yang dikeluarkan). Bukan anggota → 404, bukan 403 (tidak membocorkan kelas ada).
@@ -64,7 +67,7 @@ export default async function ClassPage({ params, searchParams }: PageProps<"/ke
       </div>
     )
   }
-  return <StudentView user={user} groupId={id} cls={m.group} tab={tab === "anggota" ? "anggota" : "tugas"} />
+  return <StudentView user={user} groupId={id} cls={m.group} tab={tab === "materi" || tab === "anggota" ? tab : "tugas"} />
 }
 
 function BackLink() {
@@ -99,7 +102,7 @@ function Header({ cls, children }: { cls: ClassHead; children?: React.ReactNode 
 // Mahasiswa / peserta
 // ---------------------------------------------------------------------------
 
-async function StudentView({ user, groupId, cls, tab }: { user: CurrentUser; groupId: string; cls: ClassHead; tab: "tugas" | "anggota" }) {
+async function StudentView({ user, groupId, cls, tab }: { user: CurrentUser; groupId: string; cls: ClassHead; tab: "tugas" | "materi" | "anggota" }) {
   const base = `/kelas/${groupId}`
   return (
     <div className="flex flex-col gap-6">
@@ -110,10 +113,13 @@ async function StudentView({ user, groupId, cls, tab }: { user: CurrentUser; gro
         active={tab}
         tabs={[
           { key: "tugas", label: "Ujian & Tugas", href: base },
+          { key: "materi", label: "Materi", href: `${base}?tab=materi` },
           { key: "anggota", label: "Anggota", href: `${base}?tab=anggota` },
         ]}
       />
-      {tab === "tugas" ? <StudentWork user={user} groupId={groupId} /> : <MemberDirectory groupId={groupId} />}
+      {tab === "tugas" && <StudentWork user={user} groupId={groupId} />}
+      {tab === "materi" && <StudentMaterials groupId={groupId} userId={user.id} />}
+      {tab === "anggota" && <MemberDirectory groupId={groupId} />}
     </div>
   )
 }
@@ -179,7 +185,7 @@ function Person({ name, detail }: { name: string; detail?: React.ReactNode }) {
 
 type ManagedClass = NonNullable<Awaited<ReturnType<typeof getManagedClass>>>
 
-async function TeacherView({ user, cls, tab }: { user: CurrentUser; cls: ManagedClass; tab: "tugas" | "anggota" | "pengaturan" }) {
+async function TeacherView({ user, cls, tab }: { user: CurrentUser; cls: ManagedClass; tab: "tugas" | "materi" | "nilai" | "anggota" | "pengaturan" }) {
   const base = `/kelas/${cls.id}`
   const pending = await db.groupMember.count({ where: { groupId: cls.id, status: "PENDING" } })
   return (
@@ -195,11 +201,15 @@ async function TeacherView({ user, cls, tab }: { user: CurrentUser; cls: Managed
         active={tab}
         tabs={[
           { key: "tugas", label: "Ujian & Tugas", href: base },
+          { key: "materi", label: "Materi", href: `${base}?tab=materi` },
+          { key: "nilai", label: "Penilaian & Rekap", href: `${base}?tab=nilai` },
           { key: "anggota", label: pending ? `Anggota · ${pending} menunggu` : "Anggota", href: `${base}?tab=anggota` },
           { key: "pengaturan", label: "Kode & Pengaturan", href: `${base}?tab=pengaturan` },
         ]}
       />
       {tab === "tugas" && <TeacherWork groupId={cls.id} />}
+      {tab === "materi" && <TeacherMaterials groupId={cls.id} />}
+      {tab === "nilai" && <TeacherGradebook groupId={cls.id} canExport={await isFeatureEnabled("ujian-kelola.ekspor", user.role)} />}
       {tab === "anggota" && <TeacherMembers groupId={cls.id} />}
       {tab === "pengaturan" && (
         <>

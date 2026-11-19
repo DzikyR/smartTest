@@ -165,5 +165,20 @@ check("Monitoring: format sinyal terakhir", formatAgo(3_000) === "baru saja" && 
 check("Monitoring: format sisa waktu", formatRemaining(Infinity) === "tanpa batas" && formatRemaining(-1) === "habis" && formatRemaining(30_000) === "< 1 mnt" && formatRemaining(90 * 60_000) === "1 j 30 mnt")
 check("Monitoring: jawaban kosong tidak dihitung", countAnswered({ a: "b", b: "", c: "  ", d: "teks" }) === 2 && countAnswered(null) === 0)
 
+// ---- Rekap nilai kelas (Penilaian & Rekap) ----
+const { gradeCell, averageScore, toPoints } = await import(src("classes/gradebook-math.ts"))
+const NOW = new Date("2026-11-19T12:00:00Z"), PAST = new Date("2026-11-18T12:00:00Z"), FUTURE = new Date("2026-11-20T12:00:00Z")
+const at = (status: string, score: number | null, extra = {}) => ({ status, score, submittedAt: PAST, isLate: false, feedback: null, ...extra })
+let cell = gradeCell([at("GRADED", 60), at("GRADED", 85.555, { feedback: "bagus" }), at("SUBMITTED", null)], PAST, NOW)
+check("Rekap: beberapa percobaan dinilai → nilai terbaik + feedback-nya", cell.state === "graded" && cell.score === 85.56 && cell.feedback === "bagus", cell)
+cell = gradeCell([at("SUBMITTED", null, { isLate: true, submissionUrl: "https://x.id" })], PAST, NOW)
+check("Rekap: diserahkan belum dinilai → perlu dinilai, tanpa nilai", cell.state === "pending" && cell.score === null && cell.isLate && cell.submissionUrl === "https://x.id", cell)
+check("Rekap: tidak mengumpulkan & tenggat lewat → 0", gradeCell([], PAST, NOW).state === "missing" && gradeCell([], PAST, NOW).score === 0)
+check("Rekap: tenggat belum lewat / tanpa tenggat → belum ada nilai", gradeCell([], FUTURE, NOW).state === "none" && gradeCell([], null, NOW).score === null)
+const cells = [gradeCell([at("GRADED", 80)], PAST, NOW), gradeCell([], PAST, NOW), gradeCell([at("SUBMITTED", null)], PAST, NOW), gradeCell([], FUTURE, NOW)]
+check("Rekap: rata-rata menghitung 0 (tidak mengumpulkan), mengabaikan 'perlu dinilai' & 'belum'", averageScore(cells) === 40, averageScore(cells))
+check("Rekap: rata-rata tanpa nilai → null", averageScore([gradeCell([], null, NOW)]) === null)
+check("Rekap: konversi ke poin Tugas", toPoints(80, 50) === 40 && toPoints(75, null) === 75 && toPoints(null, 50) === null)
+
 console.log(`\n${pass} lulus, ${fail} gagal`)
 if (fail) process.exit(1)

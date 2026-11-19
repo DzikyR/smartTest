@@ -89,6 +89,19 @@ enum CodeStatus {
   REVOKED // diganti (mis. bocor) — tidak berlaku lagi
 }
 
+/// Jenis isi materi pembelajaran
+enum MaterialType {
+  TEXT // konten teks saja
+  LINK // tautan luar (YouTube, Drive, situs)
+  FILE // berkas di UPLOAD_DIR
+  ASSIGNMENT // menautkan Tugas (Exam workType ASSIGNMENT) yang sudah ada ke topik materi
+}
+
+enum MaterialStatus {
+  DRAFT // hanya terlihat pengajar
+  PUBLISHED // terlihat anggota kelas
+}
+
 enum LogSeverity {
   INFO
   WARNING
@@ -132,6 +145,9 @@ model User {
   sessions        SessionParticipant[]
   createdSessions ExamSession[]        @relation("SessionCreator")
   accessCodes     AccessCode[]
+  materials       Material[]
+  materialDone    MaterialProgress[]
+  materialNotes   MaterialComment[]
 
   @@index([role])
   @@map("users")
@@ -216,10 +232,13 @@ model Group {
   rosterOnly       Boolean    @default(false)
   archivedAt       DateTime?
 
-  members GroupMember[]
-  exams   ExamGroup[]
-  codes   AccessCode[]
-  roster  ClassRoster[]
+  members        GroupMember[]
+  exams          ExamGroup[]
+  codes          AccessCode[]
+  roster         ClassRoster[]
+  /// Materi pembelajaran (tab Materi)
+  materialTopics MaterialTopic[]
+  materials      Material[]
 
   @@index([ownerId])
   @@map("groups")
@@ -334,6 +353,8 @@ model Exam {
   sessions    ExamSession[]
   /// Lampiran referensi dari pengajar (mis. panduan Tugas) — Fase 5
   attachments ExamAttachment[]
+  /// Kartu Materi bertipe ASSIGNMENT yang menautkan Tugas ini ke topik kelas
+  materials   Material[]
 
   questions ExamQuestion[]
   groups    ExamGroup[]
@@ -415,6 +436,8 @@ model Attempt {
   isLate           Boolean          @default(false)
   /// Jawaban teks untuk jenis Tugas (ASSIGNMENT)
   submissionText   String?
+  /// Jawaban berupa tautan luar (mis. Google Drive/GitHub) untuk jenis Tugas
+  submissionUrl    String?
   /// Sesi publik yang dipakai saat memulai (null = lewat kelas/terbuka untuk semua)
   sessionId        String?
   session          ExamSession?     @relation(fields: [sessionId], references: [id], onDelete: SetNull)
@@ -646,6 +669,95 @@ model ExamAttachment {
 
   @@index([examId])
   @@map("exam_attachments")
+}
+
+// -----------------------------------------------------------------------------
+//  MATERI PEMBELAJARAN — menempel pada kelas (Group); tidak menyentuh ujian
+// -----------------------------------------------------------------------------
+
+/// Topik pengelompokan materi di dalam kelas (ala Google Classroom)
+model MaterialTopic {
+  id        String   @id @default(cuid())
+  name      String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  groupId   String
+  group     Group      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  materials Material[]
+
+  @@unique([groupId, name])
+  @@index([groupId, sortOrder])
+  @@map("material_topics")
+}
+
+model Material {
+  id          String         @id @default(cuid())
+  title       String
+  /// Deskripsi / isi teks materi
+  content     String?
+  type        MaterialType   @default(TEXT)
+  /// LINK: URL http(s)
+  url         String?
+  /// FILE: metadata berkas (isi di UPLOAD_DIR, pola sama dengan ExamAttachment)
+  fileName    String?
+  mimeType    String?
+  size        Int?
+  storageKey  String?        @unique
+  sha256      String?
+  sortOrder   Int            @default(0)
+  status      MaterialStatus @default(DRAFT)
+  publishedAt DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  groupId     String
+  group       Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  /// Kosong = "Tanpa topik"; topik dihapus → materi tetap ada
+  topicId     String?
+  topic       MaterialTopic? @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  createdById String?
+  createdBy   User?          @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  /// ASSIGNMENT: Tugas yang ditautkan (nilai & pengumpulan tetap di Attempt)
+  examId      String?
+  exam        Exam?          @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  progress MaterialProgress[]
+  comments MaterialComment[]
+
+  @@unique([groupId, examId])
+  @@index([groupId, status, sortOrder])
+  @@index([topicId])
+  @@map("materials")
+}
+
+/// Mahasiswa menandai materi "Selesai dibaca" (baris ada = selesai).
+model MaterialProgress {
+  completedAt DateTime @default(now())
+
+  materialId String
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([materialId, userId])
+  @@index([userId])
+  @@map("material_progress")
+}
+
+/// Diskusi di bawah materi — pengelola kelas & anggota aktif.
+model MaterialComment {
+  id        String   @id @default(cuid())
+  body      String
+  createdAt DateTime @default(now())
+
+  materialId String
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  authorId   String
+  author     User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([materialId, createdAt])
+  @@map("material_comments")
 }
 
 model PasswordResetToken {

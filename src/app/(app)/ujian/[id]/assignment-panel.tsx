@@ -1,12 +1,13 @@
 "use client"
 
 import { useEffect, useRef, useState, useTransition } from "react"
-import { FileText, Loader2, Paperclip, RotateCcw, Send, Trash2, Upload } from "lucide-react"
+import { ExternalLink, FileText, Link2, Loader2, Paperclip, RotateCcw, Send, Trash2, Upload } from "lucide-react"
 import { toast } from "sonner"
-import { removeAssignmentFile, saveAssignmentText, submitAssignment, unsubmitAssignment, uploadAssignmentFile } from "../assignment-actions"
+import { removeAssignmentFile, saveAssignmentLink, saveAssignmentText, submitAssignment, unsubmitAssignment, uploadAssignmentFile } from "../assignment-actions"
 import { SUBMISSION_ACCEPT, SUBMISSION_FORMATS_LABEL, SUBMISSION_LIMITS } from "@/lib/submissions/files"
 import { formatBytes } from "@/lib/format"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 
 export type AssignmentFile = { id: string; name: string; size: number }
@@ -21,6 +22,7 @@ export function AssignmentPanel({
   submitted,
   canUnsubmit,
   initialText,
+  initialUrl,
   files,
 }: {
   examId: string
@@ -29,9 +31,12 @@ export function AssignmentPanel({
   submitted: boolean
   canUnsubmit: boolean
   initialText: string
+  /** Tautan tersimpan (sudah divalidasi http/https di server) */
+  initialUrl: string
   files: AssignmentFile[]
 }) {
   const [text, setText] = useState(initialText)
+  const [url, setUrl] = useState(initialUrl)
   const [saved, setSaved] = useState<string | null>(null)
   const [pending, start] = useTransition()
   const [uploading, setUploading] = useState(false)
@@ -131,9 +136,29 @@ export function AssignmentPanel({
         )}
       </div>
 
+      <div className="flex flex-col gap-2">
+        <label htmlFor="assignment-url" className="flex items-center gap-1.5 text-sm font-medium">
+          <Link2 className="size-4" aria-hidden /> Tautan (opsional)
+        </label>
+        {editable ? (
+          <div className="flex gap-2">
+            <Input id="assignment-url" type="url" inputMode="url" placeholder="https://drive.google.com/…" value={url} maxLength={2000} onChange={(e) => setUrl(e.target.value)} />
+            <Button type="button" variant="outline" disabled={pending || url.trim() === initialUrl} onClick={() => act(() => saveAssignmentLink(examId, url.trim()))}>
+              Simpan
+            </Button>
+          </div>
+        ) : initialUrl ? (
+          <a href={initialUrl} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-primary hover:underline">
+            <ExternalLink className="size-4 shrink-0" aria-hidden /> <span className="truncate">{initialUrl}</span>
+          </a>
+        ) : (
+          <p className="text-sm text-muted-foreground">—</p>
+        )}
+      </div>
+
       <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
         {editable && (
-          <Button disabled={pending || uploading || (!text.trim() && files.length === 0)} onClick={() => act(() => submitAssignment(examId, text))}>
+          <Button disabled={pending || uploading || (!text.trim() && files.length === 0 && !initialUrl)} onClick={() => act(() => submitAssignment(examId, text))}>
             {pending ? <Loader2 className="animate-spin" aria-hidden /> : <Send aria-hidden />} Serahkan
           </Button>
         )}

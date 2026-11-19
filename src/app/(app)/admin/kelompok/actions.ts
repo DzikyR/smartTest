@@ -8,6 +8,7 @@ import { requireRole } from "@/lib/auth/dal"
 import { isFeatureEnabled } from "@/lib/features/access"
 import { FEATURE_DISABLED } from "@/lib/features/registry"
 import { ADMINS } from "@/lib/auth/roles"
+import { removeStoredFiles } from "@/lib/submissions/storage"
 import { fail, formObject, ok, prismaCode, zodFail, type ActionResult } from "@/lib/action-result"
 import { optionalText } from "@/lib/validation"
 
@@ -55,8 +56,10 @@ export async function updateGroup(id: string, _prev: ActionResult, formData: For
 export async function deleteGroup(id: string): Promise<ActionResult<{ href: string }>> {
   const actor = await requireGroupAdmin()
   if (!actor) return fail(FEATURE_DISABLED)
+  const files = await db.material.findMany({ where: { groupId: id, storageKey: { not: null } }, select: { storageKey: true } })
   const g = await db.group.delete({ where: { id }, select: { name: true } }).catch(() => null)
   if (!g) return fail("Kelompok tidak ditemukan.")
+  await removeStoredFiles(files.map((f) => f.storageKey!)) // baris materi ikut terhapus (cascade); berkas di disk dibersihkan
   await audit("GROUP_DELETED", { userId: actor.id, entity: "Group", entityId: id, severity: "WARNING", metadata: { name: g.name } })
   refresh()
   return ok(`Kelompok "${g.name}" dihapus (akun peserta tidak ikut terhapus).`, { href: "/admin/kelompok" })

@@ -1,7 +1,8 @@
 import Link from "next/link"
-import { ArrowLeft, FileText } from "lucide-react"
+import { ArrowLeft, ExternalLink, FileText } from "lucide-react"
 import { formatBytes, formatDateTime } from "@/lib/format"
 import { round2 } from "@/lib/exam/grading"
+import { safeHref } from "@/lib/safe-url"
 import { PageHeader } from "@/components/shell/page-parts"
 import { ActionForm, FormField } from "@/components/forms/action-form"
 import { Badge } from "@/components/ui/badge"
@@ -22,6 +23,7 @@ type Props = {
     submittedAt: Date | null
     isLate: boolean
     submissionText: string | null
+    submissionUrl: string | null
     feedback: string | null
     user: { name: string; username: string | null; email: string }
     gradedBy: { name: string } | null
@@ -31,6 +33,7 @@ type Props = {
 
 /** Halaman penilaian Tugas: jawaban teks + berkas (unduh) + poin & komentar. */
 export function AssignmentGrading({ examId, examTitle, maxPoints, attempt }: Props) {
+  const link = safeHref(attempt.submissionUrl)
   const points = attempt.status === "GRADED" && attempt.score !== null ? round2((attempt.score * maxPoints) / 100) : null
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
@@ -53,6 +56,11 @@ export function AssignmentGrading({ examId, examTitle, maxPoints, attempt }: Pro
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           {attempt.submissionText ? <p className="rounded-xl bg-muted p-3 text-sm whitespace-pre-wrap">{attempt.submissionText}</p> : <p className="text-sm text-muted-foreground">(tanpa jawaban teks)</p>}
+          {link && (
+            <a href={link} target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium hover:text-primary hover:underline">
+              <ExternalLink className="size-4 shrink-0" aria-hidden /> <span className="truncate">{link}</span>
+            </a>
+          )}
           {attempt.files.length > 0 ? (
             <ul className="flex flex-col divide-y rounded-xl border">
               {attempt.files.map((f) => (

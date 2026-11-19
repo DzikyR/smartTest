@@ -1,11 +1,13 @@
 import type { Metadata } from "next"
 import Link from "next/link"
-import { notFound, redirect } from "next/navigation"
-import { ArrowLeft, CheckCircle2, Circle, MessageSquare, Trash2 } from "lucide-react"
+import { notFound } from "next/navigation"
+import { ArrowLeft, ArrowRight, CheckCircle2, Circle, MessageSquare, Trash2 } from "lucide-react"
 import { db } from "@/lib/db"
 import { requireRole } from "@/lib/auth/dal"
 import { ACTIVE_STUDENT } from "@/lib/classes/access"
 import { getMaterialAccess } from "@/lib/classes/materials"
+import { POST_KIND_LABEL } from "@/lib/classes/posts"
+import { cn } from "@/lib/utils"
 import { formatDateTime, initials } from "@/lib/format"
 import { ActionButton } from "@/components/forms/action-button"
 import { ConfirmAction } from "@/components/forms/confirm-action"
@@ -16,7 +18,7 @@ import { addMaterialComment, deleteMaterialComment, setMaterialDone } from "../.
 import { MaterialBody, materialMeta, TypeIcon } from "../../materials"
 import { CommentForm } from "./comment-form"
 
-export const metadata: Metadata = { title: "Materi" }
+export const metadata: Metadata = { title: "Materi kelas" }
 
 export default async function MaterialPage({ params }: PageProps<"/kelas/[id]/materi/[materiId]">) {
   const user = await requireRole()
@@ -25,12 +27,12 @@ export default async function MaterialPage({ params }: PageProps<"/kelas/[id]/ma
   const access = await getMaterialAccess(user, id, materiId)
   if (!access) notFound()
   const { material: m, manage } = access
-  // Materi jenis Tugas hanyalah penaut: pengumpulan & penilaian ada di halaman Tugas
-  if (m.type === "ASSIGNMENT" && m.examId) redirect(manage ? `/ujian-kelola/${m.examId}?tab=peserta` : `/ujian/${m.examId}`)
+  const isMaterial = m.kind === "MATERI"
 
-  const [comments, done] = await Promise.all([
+  const [comments, done, myAttempts] = await Promise.all([
     db.materialComment.findMany({ where: { materialId: m.id }, orderBy: { createdAt: "asc" }, select: { id: true, body: true, createdAt: true, author: { select: { id: true, name: true, role: true } } } }),
-    manage ? null : db.materialProgress.findUnique({ where: { materialId_userId: { materialId: m.id, userId: user.id } }, select: { completedAt: true } }),
+    manage || !isMaterial ? null : db.materialProgress.findUnique({ where: { materialId_userId: { materialId: m.id, userId: user.id } }, select: { completedAt: true } }),
+    !manage && m.examId ? db.attempt.findMany({ where: { examId: m.examId, userId: user.id }, select: { status: true, score: true } }) : null,
   ])
 
   return (
@@ -42,7 +44,7 @@ export default async function MaterialPage({ params }: PageProps<"/kelas/[id]/ma
       <Card>
         <CardHeader>
           <div className="flex items-start gap-3">
-            <TypeIcon type={m.type} />
+            <TypeIcon kind={m.kind} />
             <div className="min-w-0 flex-1">
               <CardTitle className="flex flex-wrap items-center gap-2 text-xl">
                 {m.title}
@@ -54,7 +56,8 @@ export default async function MaterialPage({ params }: PageProps<"/kelas/[id]/ma
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <MaterialBody m={m} />
-          {!manage && (
+          {m.exam && <WorkPanel kind={m.kind} examId={m.exam.id} manage={manage} attempts={myAttempts ?? []} exam={m.exam} />}
+          {!manage && isMaterial && (
             <div className="flex flex-wrap items-center gap-3 border-t pt-4">
               {done ? (
                 <>
@@ -75,7 +78,7 @@ export default async function MaterialPage({ params }: PageProps<"/kelas/[id]/ma
         </CardContent>
       </Card>
 
-      {manage && <ProgressCard groupId={id} materialId={m.id} />}
+      {manage && isMaterial && <ProgressCard groupId={id} materialId={m.id} />}
 
       <Card>
         <CardHeader>
@@ -163,5 +166,37 @@ async function ProgressCard({ groupId, materialId }: { groupId: string; material
         )}
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * Pekerjaan tertaut (Tugas / Tugas Kuis / Pertanyaan): pengumpulan, pengerjaan &
+ * penilaian tetap di halaman ujian yang sudah ada — panel ini hanya status + tautan.
+ */
+function WorkPanel({ kind, examId, manage, attempts, exam }: { kind: keyof typeof POST_KIND_LABEL; examId: string; manage: boolean; attempts: { status: string; score: number | null }[]; exam: { dueAt: Date | null; maxPoints: number | null; publishedAt: Date | null } }) {
+  const label = POST_KIND_LABEL[kind]
+  const graded = attempts.find((a) => a.status === "GRADED")
+  const status = graded
+    ? { text: `Dinilai${graded.score !== null ? ` · ${graded.score}` : ""}`, className: "bg-tint-violet text-tint-violet-fg" }
+    : attempts.some((a) => a.status === "SUBMITTED")
+      ? { text: "Diserahkan", className: "bg-tint-green text-tint-green-fg" }
+      : attempts.length
+        ? { text: "Sedang dikerjakan", className: "bg-tint-sky text-tint-sky-fg" }
+        : exam.dueAt && exam.dueAt < new Date()
+          ? { text: "Lewat tenggat", className: "bg-tint-rose text-tint-rose-fg" }
+          : { text: "Ditugaskan", className: "bg-tint-sky text-tint-sky-fg" }
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-muted/30 p-4">
+      <div className="min-w-0 flex-1 text-sm">
+        <p className="font-medium">{manage ? `${label} · pengumpulan & penilaian` : `${label} Anda`}</p>
+        <p className="text-xs text-muted-foreground">
+          {[exam.dueAt ? `Tenggat ${formatDateTime(exam.dueAt)}` : "Tanpa tenggat", exam.maxPoints ? `${exam.maxPoints} poin` : null, manage && !exam.publishedAt ? "pekerjaan belum terbit" : null].filter(Boolean).join(" · ")}
+        </p>
+      </div>
+      {!manage && <span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", status.className)}>{status.text}</span>}
+      <Link href={manage ? `/ujian-kelola/${examId}?tab=peserta` : `/ujian/${examId}`} className={buttonVariants({ size: "sm" })}>
+        {manage ? "Lihat pengumpulan" : kind === "TUGAS" ? "Buka & kumpulkan" : "Kerjakan"} <ArrowRight aria-hidden />
+      </Link>
+    </div>
   )
 }

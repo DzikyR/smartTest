@@ -180,5 +180,25 @@ check("Rekap: rata-rata menghitung 0 (tidak mengumpulkan), mengabaikan 'perlu di
 check("Rekap: rata-rata tanpa nilai → null", averageScore([gradeCell([], null, NOW)]) === null)
 check("Rekap: konversi ke poin Tugas", toPoints(80, 50) === 40 && toPoints(75, null) === 75 && toPoints(null, 50) === null)
 
+// ---- Postingan kelas: multi-lampiran & Gunakan kembali ----
+const posts = await import(src("classes/posts.ts"))
+check("YouTube: watch?v= / youtu.be / shorts / embed → ID", ["https://www.youtube.com/watch?v=dQw4w9WgXcQ", "https://youtu.be/dQw4w9WgXcQ?t=3", "https://youtube.com/shorts/dQw4w9WgXcQ", "https://m.youtube.com/embed/dQw4w9WgXcQ"].every((u) => posts.youtubeId(u) === "dQw4w9WgXcQ"))
+check("YouTube: host palsu / ID tidak valid → null", posts.youtubeId("https://youtube.com.evil.id/watch?v=dQw4w9WgXcQ") === null && posts.youtubeId("https://youtu.be/abc") === null && posts.youtubeId("javascript:alert(1)") === null)
+let link = posts.linkAttachment(" https://youtu.be/dQw4w9WgXcQ ", "")
+check("Tautan YouTube → tipe YOUTUBE, judul bawaan", link?.type === "YOUTUBE" && link.name === "Video YouTube", link)
+link = posts.linkAttachment("https://drive.google.com/file/d/1", "  Slide\u0007 Bab 1 ")
+check("Tautan biasa → LINK, judul dibersihkan", link?.type === "LINK" && link.name === "Slide Bab 1" && link.url === "https://drive.google.com/file/d/1", link)
+check("Tautan non-http ditolak", posts.linkAttachment("javascript:alert(1)") === null && posts.linkAttachment("ftp://x.id/a") === null && posts.linkAttachment("bukan url") === null)
+let pl = posts.parseLinks(["https://a.id/1", "", "https://a.id/1", "https://youtu.be/dQw4w9WgXcQ"], ["A", "", "dupe", ""])
+check("parseLinks: baris kosong diabaikan, duplikat digabung, tipe campur", !pl.error && pl.links.length === 2 && pl.links[1].type === "YOUTUBE", pl)
+check("parseLinks: tautan buruk → error (tidak dibuang diam-diam)", !!posts.parseLinks(["https://ok.id", "data:text/html,x"], []).error)
+check("parseLinks: > batas tautan → error", !!posts.parseLinks(Array.from({ length: 11 }, (_, i) => `https://a.id/${i}`), []).error)
+const MB = 1024 * 1024
+check("Batch berkas: 3 × 10 MB lolos", posts.checkFileBatch([{ name: "a", size: 10 * MB }, { name: "b", size: 10 * MB }, { name: "c", size: 10 * MB }]) === null)
+check("Batch berkas: satu > 20 MB / total > 50 MB / > 10 berkas / > 20 lampiran → error", !!posts.checkFileBatch([{ name: "a", size: 21 * MB }]) && !!posts.checkFileBatch(Array.from({ length: 3 }, () => ({ name: "x", size: 18 * MB }))) && !!posts.checkFileBatch(Array.from({ length: 11 }, () => ({ name: "x", size: 1 }))) && !!posts.checkFileBatch([{ name: "x", size: 1 }], 20))
+check("orphanKeys: berkas yang masih dipakai salinan kelas lain TIDAK dihapus", JSON.stringify(posts.orphanKeys(["k1", "k2", null, "k1"], ["k2"])) === JSON.stringify(["k1"]))
+check("reusableDueAt: tenggat lampau dibuang, mendatang dipertahankan", posts.reusableDueAt(PAST, NOW) === null && posts.reusableDueAt(FUTURE, NOW) === FUTURE && posts.reusableDueAt(null, NOW) === null)
+check("Jenis postingan ↔ workType ujian", posts.WORK_TYPE_OF.TUGAS === "ASSIGNMENT" && posts.WORK_TYPE_OF.TUGAS_KUIS === "QUIZ" && posts.WORK_TYPE_OF.PERTANYAAN === "QUESTION" && !posts.isWorkPost("MATERI"))
+
 console.log(`\n${pass} lulus, ${fail} gagal`)
 if (fail) process.exit(1)

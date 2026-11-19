@@ -1,6 +1,7 @@
 import { Suspense } from "react"
 import { getCurrentUser, requireRole } from "@/lib/auth/dal"
 import { enabledFeatures } from "@/lib/features/access"
+import { teachingClasses } from "@/lib/classes/access"
 import { getBrand, getTexts } from "@/lib/site/config"
 import { NAV_TEXT_KEYS, roleLabels, type Texts } from "@/content/texts"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -52,12 +53,12 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
 async function SidebarForUser() {
   const user = await getCurrentUser()
   if (!user || user.mustChangePassword) return null
-  const [features, t] = await Promise.all([enabledFeatures(user.role), getTexts()])
+  const [features, t, classes] = await Promise.all([enabledFeatures(user.role), getTexts(), teachingClasses(user)])
   const who = user.role === "PESERTA" ? "participant" : "staff"
   const copy = { title: t[`sidebar.${who}.title`], text: t[`sidebar.${who}.text`], cta: t[`sidebar.${who}.cta`] }
   return (
     <div className="flex flex-1 flex-col justify-between gap-6">
-      <SidebarNav role={user.role} features={features} labels={navLabels(t)} />
+      <SidebarNav role={user.role} features={features} labels={navLabels(t)} classes={classes} />
       <SidebarPromo role={user.role} features={features} copy={copy} />
     </div>
   )
@@ -66,8 +67,8 @@ async function SidebarForUser() {
 async function MobileNavForUser() {
   const user = await getCurrentUser()
   if (!user || user.mustChangePassword) return null
-  const [features, t] = await Promise.all([enabledFeatures(user.role), getTexts()])
-  return <MobileNav role={user.role} features={features} labels={navLabels(t)} appName={t["app.name"]} />
+  const [features, t, classes] = await Promise.all([enabledFeatures(user.role), getTexts(), teachingClasses(user)])
+  return <MobileNav role={user.role} features={features} labels={navLabels(t)} appName={t["app.name"]} classes={classes} />
 }
 
 const navLabels = (t: Texts) => Object.fromEntries(NAV_TEXT_KEYS.map((k) => [k, t[k]]))

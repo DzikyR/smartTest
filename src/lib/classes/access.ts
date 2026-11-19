@@ -47,5 +47,19 @@ export async function getMembership(user: CurrentUser, groupId: string) {
   })
 }
 
+/**
+ * Kelas aktif yang DIAJAR pengguna (pemilik atau co-teacher aktif) untuk menu
+ * samping. Admin pun hanya melihat kelas ajarnya sendiri agar menu tidak membanjir.
+ */
+export async function teachingClasses(user: CurrentUser, take = 20) {
+  if (user.role === "PESERTA") return []
+  return db.group.findMany({
+    where: { archivedAt: null, OR: [{ ownerId: user.id }, { members: { some: { userId: user.id, role: "TEACHER", status: "ACTIVE" } } }] },
+    orderBy: { name: "asc" },
+    take,
+    select: { id: true, name: true },
+  })
+}
+
 /** Filter anggota yang dihitung sebagai siswa kelas. */
 export const ACTIVE_STUDENT = { status: "ACTIVE", role: "STUDENT" } as const satisfies Prisma.GroupMemberWhereInput

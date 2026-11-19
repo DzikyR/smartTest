@@ -1,5 +1,6 @@
 "use client"
 
+import { Fragment } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { FileSpreadsheet, ShieldCheck } from "lucide-react"
@@ -8,17 +9,23 @@ import type { Role } from "@/lib/auth/roles"
 import type { FeatureKey } from "@/lib/features/registry"
 import { navFor, type NavLabels } from "./nav"
 
-export function SidebarNav({ role, features, labels, onNavigate }: { role: Role; features: FeatureKey[]; labels: NavLabels; onNavigate?: () => void }) {
+export type SidebarClass = { id: string; name: string }
+
+export function SidebarNav({ role, features, labels, classes = [], onNavigate }: { role: Role; features: FeatureKey[]; labels: NavLabels; classes?: SidebarClass[]; onNavigate?: () => void }) {
   const pathname = usePathname()
   const sections = navFor(role, features, labels)
+  const inClass = (id: string) => pathname === `/kelas/${id}` || pathname.startsWith(`/kelas/${id}/`)
+  const classActive = classes.some((c) => inClass(c.id))
 
   return (
     <nav aria-label="Navigasi utama" className="flex flex-col gap-5">
       {sections.map((section, i) => (
-        <div key={section.title ?? i} className="flex flex-col gap-1">
+        <Fragment key={section.title ?? i}>
+        <div className="flex flex-col gap-1">
           {section.title && <p className="px-3 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground/80 uppercase">{section.title}</p>}
           {section.items.map(({ href, label, icon: Icon }) => {
-            const active = pathname === href || pathname.startsWith(`${href}/`)
+            // Saat berada di kelas yang tercantum di "Kelas Saya", sorotan pindah ke nama kelasnya
+            const active = pathname === href || (pathname.startsWith(`${href}/`) && !(href === "/kelas" && classActive))
             return (
               <Link
                 key={href}
@@ -38,8 +45,43 @@ export function SidebarNav({ role, features, labels, onNavigate }: { role: Role;
             )
           })}
         </div>
+        {i === 0 && classes.length > 0 && <ClassList classes={classes} isActive={inClass} onNavigate={onNavigate} />}
+        </Fragment>
       ))}
     </nav>
+  )
+}
+
+/** Daftar kelas yang diajar (pintasan langsung ke halaman kelas). */
+function ClassList({ classes, isActive, onNavigate }: { classes: SidebarClass[]; isActive: (id: string) => boolean; onNavigate?: () => void }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <p className="px-3 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground/80 uppercase">Kelas Saya</p>
+      {classes.map((c) => {
+        const active = isActive(c.id)
+        return (
+          <Link
+            key={c.id}
+            href={`/kelas/${c.id}`}
+            onClick={onNavigate}
+            title={c.name}
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors",
+              active ? "bg-primary text-primary-foreground shadow-md shadow-primary/25" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            )}
+          >
+            <span className={cn("flex size-[18px] shrink-0 items-center justify-center rounded-md text-[10px] font-bold", active ? "bg-white/20" : "bg-tint-violet text-tint-violet-fg")} aria-hidden>
+              {c.name.trim().charAt(0).toUpperCase()}
+            </span>
+            <span className="truncate">{c.name}</span>
+          </Link>
+        )
+      })}
+      <Link href="/kelas" onClick={onNavigate} className="px-3 py-1 text-xs text-muted-foreground hover:text-primary">
+        Semua kelas →
+      </Link>
+    </div>
   )
 }
 

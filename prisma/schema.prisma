@@ -89,12 +89,20 @@ enum CodeStatus {
   REVOKED // diganti (mis. bocor) — tidak berlaku lagi
 }
 
-/// Jenis isi materi pembelajaran
-enum MaterialType {
-  TEXT // konten teks saja
-  LINK // tautan luar (YouTube, Drive, situs)
-  FILE // berkas di UPLOAD_DIR
-  ASSIGNMENT // menautkan Tugas (Exam workType ASSIGNMENT) yang sudah ada ke topik materi
+/// Jenis postingan di tab Materi (tombol "+ Buat" ala Google Classroom).
+/// Selain MATERI, postingan menautkan Exam — pengumpulan, nilai & Rekap tetap di mesin ujian.
+enum PostKind {
+  MATERI // judul + deskripsi + lampiran, tanpa tenggat
+  TUGAS // Exam workType ASSIGNMENT (tenggat = Exam.dueAt, skor = Exam.maxPoints)
+  TUGAS_KUIS // Exam workType QUIZ (ujian CBT yang sudah ada) ditautkan ke kelas
+  PERTANYAAN // Exam workType QUESTION (satu soal: jawaban singkat / pilihan ganda)
+}
+
+/// Jenis lampiran postingan
+enum AttachmentType {
+  FILE // berkas di UPLOAD_DIR (storageKey)
+  LINK // tautan http(s)
+  YOUTUBE // tautan video YouTube
 }
 
 enum MaterialStatus {
@@ -691,20 +699,13 @@ model MaterialTopic {
   @@map("material_topics")
 }
 
+/// Postingan kelas (Materi / Tugas / Tugas Kuis / Pertanyaan). Lampiran di MaterialAttachment.
 model Material {
   id          String         @id @default(cuid())
   title       String
-  /// Deskripsi / isi teks materi
+  /// Deskripsi / instruksi
   content     String?
-  type        MaterialType   @default(TEXT)
-  /// LINK: URL http(s)
-  url         String?
-  /// FILE: metadata berkas (isi di UPLOAD_DIR, pola sama dengan ExamAttachment)
-  fileName    String?
-  mimeType    String?
-  size        Int?
-  storageKey  String?        @unique
-  sha256      String?
+  kind        PostKind       @default(MATERI)
   sortOrder   Int            @default(0)
   status      MaterialStatus @default(DRAFT)
   publishedAt DateTime?
@@ -718,17 +719,45 @@ model Material {
   topic       MaterialTopic? @relation(fields: [topicId], references: [id], onDelete: SetNull)
   createdById String?
   createdBy   User?          @relation(fields: [createdById], references: [id], onDelete: SetNull)
-  /// ASSIGNMENT: Tugas yang ditautkan (nilai & pengumpulan tetap di Attempt)
+  /// TUGAS / TUGAS_KUIS / PERTANYAAN: pekerjaan yang ditautkan (tenggat, skor, pengumpulan & nilai tetap di Exam/Attempt)
   examId      String?
   exam        Exam?          @relation(fields: [examId], references: [id], onDelete: Cascade)
 
-  progress MaterialProgress[]
-  comments MaterialComment[]
+  attachments MaterialAttachment[]
+  progress    MaterialProgress[]
+  comments    MaterialComment[]
 
   @@unique([groupId, examId])
   @@index([groupId, status, sortOrder])
   @@index([topicId])
   @@map("materials")
+}
+
+/// Lampiran postingan: banyak berkas DAN tautan dalam satu postingan.
+/// "Gunakan kembali postingan" menyalin baris ini dengan storageKey yang sama
+/// (berkas fisik tidak diunggah ulang) — maka storageKey TIDAK unik; berkas di
+/// disk baru dihapus bila tidak ada lagi baris yang mereferensikannya.
+model MaterialAttachment {
+  id         String         @id @default(cuid())
+  type       AttachmentType
+  /// Judul tampilan (nama berkas asli yang disanitasi, atau judul/host tautan)
+  name       String
+  /// LINK/YOUTUBE: URL http(s)
+  url        String?
+  /// FILE: path relatif di UPLOAD_DIR (kunci acak, tidak pernah dari pengguna)
+  storageKey String?
+  mimeType   String?
+  size       Int?
+  sha256     String?
+  sortOrder  Int            @default(0)
+  createdAt  DateTime       @default(now())
+
+  materialId String
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  @@index([materialId, sortOrder])
+  @@index([storageKey])
+  @@map("material_attachments")
 }
 
 /// Mahasiswa menandai materi "Selesai dibaca" (baris ada = selesai).

@@ -19,22 +19,29 @@ export function FormDialog({
   submitLabel,
   children,
   wide,
+  open: controlledOpen,
+  onOpenChange,
 }: {
-  trigger: React.ReactElement
+  /** Tanpa trigger → dialog terkendali dari luar (`open` + `onOpenChange`), mis. dibuka dari menu. */
+  trigger?: React.ReactElement
   title: string
   description?: string
   action: FormAction
   submitLabel?: string
   children: React.ReactNode
   wide?: boolean
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }) {
-  const [open, setOpen] = useState(false)
+  const [ownOpen, setOwnOpen] = useState(false)
+  const open = controlledOpen ?? ownOpen
   const router = useRouter()
   const [secret, setSecret] = useState<string | null>(null)
   const [formKey, setFormKey] = useState(0)
 
   const handleOpenChange = (next: boolean) => {
-    setOpen(next)
+    setOwnOpen(next)
+    onOpenChange?.(next)
     if (!next) {
       setSecret(null)
       setFormKey((k) => k + 1) // reset isian & error untuk pembukaan berikutnya
@@ -50,7 +57,7 @@ export function FormDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger render={trigger} />
+      {trigger && <DialogTrigger render={trigger} />}
       <DialogContent className={wide ? "sm:max-w-2xl" : "sm:max-w-lg"}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>

@@ -40,8 +40,9 @@ const nextConfig: NextConfig = {
   // Pustaka Office (Excel/Word) berjalan di Node.js, tidak perlu dibundel.
   serverExternalPackages: ["exceljs", "mammoth", "docx"],
   experimental: {
-    // Unggah berkas soal (≤ 5 MB) & berkas jawaban Tugas (≤ 8 MB) lewat Server Action.
-    serverActions: { bodySizeLimit: "9mb" },
+    // Unggah berkas soal (≤ 5 MB), jawaban Tugas (≤ 8 MB) & lampiran postingan kelas
+    // (≤ 50 MB sekali simpan, lihat POST_LIMITS di src/lib/classes/posts.ts) lewat Server Action.
+    serverActions: { bodySizeLimit: "52mb" },
   },
   async headers() {
     return [

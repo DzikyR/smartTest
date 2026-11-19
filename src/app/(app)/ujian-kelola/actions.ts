@@ -11,6 +11,7 @@ import { STAFF } from "@/lib/auth/roles"
 import { canManageSubject, getManagedExam, managedSubjects } from "@/lib/data/access"
 import { targetableClasses } from "@/lib/classes/access"
 import { removeStoredFiles } from "@/lib/submissions/storage"
+import { removeUnusedFiles } from "@/lib/classes/materials"
 import { appendExamQuestions, editableExam } from "@/lib/data/exam-questions"
 import { invalidateExamQuestions } from "@/lib/exam/question-cache"
 import { fail, formObject, ok, zodFail, type ActionResult } from "@/lib/action-result"
@@ -240,8 +241,11 @@ export async function deleteExam(examId: string): Promise<ActionResult<{ href: s
   if (!exam) return fail(DENIED)
   if (exam._count.attempts > 0) return fail("Ujian sudah dikerjakan peserta dan tidak dapat dihapus. Tarik menjadi draf bila perlu.")
   const attachments = await db.examAttachment.findMany({ where: { examId }, select: { storageKey: true } })
+  // Postingan kelas yang menautkan ujian ini ikut terhapus (cascade) beserta lampirannya
+  const postFiles = await db.materialAttachment.findMany({ where: { material: { examId }, storageKey: { not: null } }, select: { storageKey: true } })
   await db.exam.delete({ where: { id: examId } })
   await removeStoredFiles(attachments.map((a) => a.storageKey)) // baris lampiran ikut terhapus (cascade); berkas di disk dibersihkan
+  await removeUnusedFiles(postFiles.map((f) => f.storageKey))
   await audit("EXAM_DELETED", { userId: user.id, entity: "Exam", entityId: examId, severity: "WARNING", metadata: { title: exam.title } })
   return ok(`"${exam.title}" dihapus.`, { href: "/ujian-kelola" })
 }

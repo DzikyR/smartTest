@@ -1,4 +1,4 @@
-import { Activity, BookOpenText, ClipboardList, FileClock, LayoutDashboard, Library, MonitorCheck, Palette, School, Tags, ToggleRight, Trophy, UserRound, Users, UsersRound, type LucideIcon } from "lucide-react"
+import { Activity, BookOpenText, ClipboardList, FileClock, FolderOpen, LayoutDashboard, Library, MonitorCheck, Palette, School, Tags, ToggleRight, Trophy, UserRound, Users, UsersRound, type LucideIcon } from "lucide-react"
 import type { Role } from "@/lib/auth/roles"
 import type { FeatureKey } from "@/lib/features/registry"
 import { DEFAULT_TEXTS, type TextKey } from "@/content/texts"
@@ -20,6 +20,7 @@ export const NAV: NavSection[] = [
     items: [
       { href: "/dashboard", ...text("nav.dashboard"), icon: LayoutDashboard, roles: ALL },
       { href: "/kelas", ...text("nav.kelas"), icon: School, roles: ALL },
+      { href: "/kelola-materi", label: "Kelola Materi", icon: FolderOpen, roles: STAFF, feature: "kelas.kelola" },
     ],
   },
   {
@@ -71,6 +72,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   log: "Log Aktivitas",
   monitoring: "Monitoring Ujian",
   kelas: "Kelas",
+  "kelola-materi": "Kelola Materi",
   kategori: "Kategori Ujian",
   gabung: "Gabung Kelas",
   fitur: "Kontrol Fitur",

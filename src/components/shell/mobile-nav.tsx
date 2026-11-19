@@ -8,9 +8,9 @@ import type { Role } from "@/lib/auth/roles"
 import type { FeatureKey } from "@/lib/features/registry"
 import { BrandName } from "./logo"
 import type { NavLabels } from "./nav"
-import { SidebarNav } from "./sidebar"
+import { SidebarNav, type SidebarClass } from "./sidebar"
 
-export function MobileNav({ role, features, labels, appName }: { role: Role; features: FeatureKey[]; labels: NavLabels; appName: string }) {
+export function MobileNav({ role, features, labels, appName, classes }: { role: Role; features: FeatureKey[]; labels: NavLabels; appName: string; classes: SidebarClass[] }) {
   const [open, setOpen] = useState(false)
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -23,7 +23,7 @@ export function MobileNav({ role, features, labels, appName }: { role: Role; fea
             <BrandName name={appName} />
           </SheetTitle>
         </SheetHeader>
-        <SidebarNav role={role} features={features} labels={labels} onNavigate={() => setOpen(false)} />
+        <SidebarNav role={role} features={features} labels={labels} classes={classes} onNavigate={() => setOpen(false)} />
       </SheetContent>
     </Sheet>
   )

@@ -10,6 +10,7 @@ import { isFeatureEnabled } from "@/lib/features/access"
 import { rateLimit } from "@/lib/rate-limit"
 import { safeFileName, sniffSubmission, SUBMISSION_FORMATS_LABEL, SUBMISSION_LIMITS } from "@/lib/submissions/files"
 import { removeStoredFiles, saveStoredFile } from "@/lib/submissions/storage"
+import { optionalHttpUrl } from "@/lib/validation"
 import { fail, ok, type ActionResult } from "@/lib/action-result"
 
 const NOT_FOUND = "Tugas tidak ditemukan atau tidak ditujukan untuk Anda."
@@ -47,6 +48,21 @@ export async function saveAssignmentText(examId: string, raw: string): Promise<A
   const updated = await db.attempt.updateMany({ where: { id: draft.attempt.id, status: "IN_PROGRESS" }, data: { submissionText: text || null, lastSavedAt: new Date() } })
   if (updated.count === 0) return fail("Tugas sudah diserahkan.")
   return ok(undefined, { savedAt: new Date().toISOString() })
+}
+
+/** Jawaban berupa tautan (Drive/GitHub/dll.), hanya http(s). Kosong = hapus tautan. */
+export async function saveAssignmentLink(examId: string, raw: string): Promise<ActionResult> {
+  const user = await requireRole("PESERTA")
+  const parsed = optionalHttpUrl.safeParse(raw)
+  if (!parsed.success) return fail("Tautan harus diawali http:// atau https://", { url: "Tidak valid" })
+  const { error } = await openAssignment(user, examId)
+  if (error) return error
+  const draft = await draftFor(user, examId, true)
+  if (draft.error) return draft.error
+  const updated = await db.attempt.updateMany({ where: { id: draft.attempt.id, status: "IN_PROGRESS" }, data: { submissionUrl: parsed.data, lastSavedAt: new Date() } })
+  if (updated.count === 0) return fail("Tugas sudah diserahkan.")
+  refresh()
+  return ok(parsed.data ? "Tautan disimpan." : "Tautan dihapus.")
 }
 
 export async function uploadAssignmentFile(examId: string, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
@@ -102,7 +118,7 @@ export async function submitAssignment(examId: string, raw: string): Promise<Act
   if (error) return error
   const draft = await draftFor(user, examId, true)
   if (draft.error) return draft.error
-  if (!text && draft.attempt.files.length === 0) return fail("Tulis jawaban atau unggah minimal satu berkas sebelum menyerahkan.")
+  if (!text && draft.attempt.files.length === 0 && !draft.attempt.submissionUrl) return fail("Tulis jawaban, lampirkan tautan, atau unggah minimal satu berkas sebelum menyerahkan.")
 
   const now = new Date()
   const isLate = !!exam.dueAt && now > exam.dueAt
@@ -111,7 +127,7 @@ export async function submitAssignment(examId: string, raw: string): Promise<Act
     data: { submissionText: text || null, status: "SUBMITTED", submittedAt: now, isLate, lastSavedAt: now },
   })
   if (updated.count === 0) return fail("Tugas sudah diserahkan.")
-  await audit("ASSIGNMENT_SUBMITTED", { userId: user.id, entity: "Exam", entityId: examId, metadata: { files: draft.attempt.files.length, late: isLate } })
+  await audit("ASSIGNMENT_SUBMITTED", { userId: user.id, entity: "Exam", entityId: examId, metadata: { files: draft.attempt.files.length, link: !!draft.attempt.submissionUrl, late: isLate } })
   refresh()
   return ok(isLate ? "Tugas diserahkan (terlambat)." : "Tugas diserahkan.")
 }

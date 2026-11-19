@@ -6,6 +6,7 @@ import { examWindow, type getParticipantExam } from "@/lib/data/access"
 import { formatDateTime } from "@/lib/format"
 import { examLabel } from "@/lib/labels"
 import { round2 } from "@/lib/exam/grading"
+import { safeHref } from "@/lib/safe-url"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -40,7 +41,7 @@ export async function AssignmentView({ user, exam }: { user: CurrentUser; exam: 
   const points = attempt?.status === "GRADED" && attempt.score !== null ? round2((attempt.score * max) / 100) : null
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
       <Link href="/ujian" className={buttonVariants({ variant: "ghost", size: "sm", className: "-ml-2 w-fit" })}>
         <ArrowLeft aria-hidden /> Ujian Saya
       </Link>
@@ -60,63 +61,67 @@ export async function AssignmentView({ user, exam }: { user: CurrentUser; exam: 
         </div>
       </section>
 
-      {(exam.instructions || attachments.length > 0) && (
+      {/* Ala Classroom: instruksi di kiri, panel "Tugas Anda" + nilai di kanan (bertumpuk di ponsel) */}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-start">
         <Card>
           <CardHeader>
             <CardTitle>Instruksi</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            {exam.instructions && <p className="text-sm whitespace-pre-wrap">{exam.instructions}</p>}
+            {exam.instructions ? <p className="text-sm whitespace-pre-wrap">{exam.instructions}</p> : <p className="text-sm text-muted-foreground">Tidak ada instruksi tambahan.</p>}
             <AttachmentList items={attachments.map((a) => ({ id: a.id, name: a.fileName, size: a.size }))} />
           </CardContent>
         </Card>
-      )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex flex-wrap items-center gap-2">
-            Tugas Anda
-            <span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", st.className)}>{st.label}</span>
-            {(attempt?.isLate || overdue) && <span className="rounded-full bg-tint-rose px-2.5 py-1 text-xs font-semibold text-tint-rose-fg">{attempt?.isLate ? "Terlambat" : "Lewat tenggat"}</span>}
-          </CardTitle>
-          {attempt?.submittedAt && <p className="text-xs text-muted-foreground">Diserahkan {formatDateTime(attempt.submittedAt)}</p>}
-        </CardHeader>
-        <CardContent>
-          {status === "upcoming" ? (
-            <p className="text-sm text-muted-foreground">Tugas dibuka {exam.startAt ? formatDateTime(exam.startAt) : "segera"}.</p>
-          ) : (
-            <AssignmentPanel
-              examId={exam.id}
-              editable={open && (status === "assigned" || status === "draft")}
-              submitted={status === "submitted"}
-              canUnsubmit={open && status === "submitted"}
-              initialText={attempt?.submissionText ?? ""}
-              files={attempt?.files.map((f) => ({ id: f.id, name: f.fileName, size: f.size })) ?? []}
-            />
+        <div className="flex flex-col gap-6 lg:sticky lg:top-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex flex-wrap items-center gap-2">
+                Tugas Anda
+                <span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", st.className)}>{st.label}</span>
+                {(attempt?.isLate || overdue) && <span className="rounded-full bg-tint-rose px-2.5 py-1 text-xs font-semibold text-tint-rose-fg">{attempt?.isLate ? "Terlambat" : "Lewat tenggat"}</span>}
+              </CardTitle>
+              {attempt?.submittedAt && <p className="text-xs text-muted-foreground">Diserahkan {formatDateTime(attempt.submittedAt)}</p>}
+            </CardHeader>
+            <CardContent>
+              {status === "upcoming" ? (
+                <p className="text-sm text-muted-foreground">Tugas dibuka {exam.startAt ? formatDateTime(exam.startAt) : "segera"}.</p>
+              ) : (
+                <AssignmentPanel
+                  examId={exam.id}
+                  editable={open && (status === "assigned" || status === "draft")}
+                  submitted={status === "submitted"}
+                  canUnsubmit={open && status === "submitted"}
+                  initialText={attempt?.submissionText ?? ""}
+                  initialUrl={safeHref(attempt?.submissionUrl) ?? ""}
+                  files={attempt?.files.map((f) => ({ id: f.id, name: f.fileName, size: f.size })) ?? []}
+                />
+              )}
+            </CardContent>
+          </Card>
+
+          {attempt?.status === "GRADED" && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Award className="size-4 text-primary" aria-hidden /> Nilai
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-2">
+                {exam.showScore && points !== null ? (
+                  <p className="text-3xl font-bold tabular-nums">
+                    {points}
+                    <span className="text-base font-medium text-muted-foreground"> / {max}</span>
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Nilai belum diumumkan pengajar.</p>
+                )}
+                {exam.showScore && attempt.feedback && <p className="rounded-xl bg-muted/50 p-3 text-sm whitespace-pre-wrap">{attempt.feedback}</p>}
+              </CardContent>
+            </Card>
           )}
-        </CardContent>
-      </Card>
-
-      {attempt?.status === "GRADED" && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Award className="size-4 text-primary" aria-hidden /> Nilai
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            {exam.showScore && points !== null ? (
-              <p className="text-3xl font-bold tabular-nums">
-                {points}
-                <span className="text-base font-medium text-muted-foreground"> / {max}</span>
-              </p>
-            ) : (
-              <p className="text-sm text-muted-foreground">Nilai belum diumumkan pengajar.</p>
-            )}
-            {exam.showScore && attempt.feedback && <p className="rounded-xl bg-muted/50 p-3 text-sm whitespace-pre-wrap">{attempt.feedback}</p>}
-          </CardContent>
-        </Card>
-      )}
+        </div>
+      </div>
     </div>
   )
 }

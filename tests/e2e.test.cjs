@@ -500,6 +500,83 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
     check("Pemilik kelas menujukan ujian ke kelasnya → berhasil", rinaTargets.join() === CLS.name, rinaTargets)
     const newForm = await html(rina, `/ujian-kelola/baru?kelas=${cls.id}`)
     check("Buat ujian dari halaman kelas (?kelas=) → kelas tercentang otomatis", (newForm.match(new RegExp(`<input[^>]*value="${cls.id}"[^>]*>`))?.[0] ?? "").includes("checked"), newForm.match(new RegExp(`<input[^>]*value="${cls.id}"[^>]*>`))?.[0] ?? "kelas tidak ada di form")
+    // ---------- Materi Pembelajaran (tab Materi di kelas) ----------
+    const MT = "kelas/material-actions", KP = `/kelas/${cls.id}?tab=materi`
+    const matOf = async (title) => one(`select id, type, status, url, "storageKey", "topicId", "sortOrder", "publishedAt" from materials where "groupId"=$1 and title=$2`, [cls.id, title])
+    r = await act(budi, KP, MT, "createMaterial", [cls.id, PREV, form({ title: "E2E Materi Budi", type: "TEXT", content: "x" })])
+    check("Materi: pengajar lain (IDOR) menambah materi di kelas Rina → ditolak", r?.ok === false && !(await matOf("E2E Materi Budi")), JSON.stringify(r))
+    r = await act(p1, KP, MT, "createMaterial", [cls.id, PREV, form({ title: "E2E Materi Peserta", type: "TEXT", content: "x" })])
+    check("Materi: peserta menambah materi → ditolak", r?.ok !== true && !(await matOf("E2E Materi Peserta")), JSON.stringify(r))
+    r = await act(rina, KP, MT, "createMaterial", [cls.id, PREV, form({ title: "E2E Teks Kosong", type: "TEXT", content: "" })])
+    const rJs = await act(rina, KP, MT, "createMaterial", [cls.id, PREV, form({ title: "E2E Tautan Jahat", type: "LINK", url: "javascript:alert(1)" })])
+    const rNoFile = await act(rina, KP, MT, "createMaterial", [cls.id, PREV, form({ title: "E2E Tanpa Berkas", type: "FILE" })])
+    const rFakePdf = await act(rina, KP, MT, "createMaterial", [cls.id, PREV, form({ title: "E2E PDF Palsu", type: "FILE", file: new File(["<script>alert(1)</script>"], "modul.pdf") })])
+    check("Materi: validasi per jenis (teks kosong, tautan javascript:, berkas kosong, PDF palsu) → ditolak per field", !!r?.fieldErrors?.content && !!rJs?.fieldErrors?.url && !!rNoFile?.fieldErrors?.file && !!rFakePdf?.fieldErrors?.file, JSON.stringify([r, rJs, rNoFile, rFakePdf]))
+
+    r = await act(rina, KP, MT, "createTopic", [cls.id, PREV, form({ name: "E2E Pertemuan 1" })])
+    const topic1 = await one(`select id from material_topics where "groupId"=$1 and name='E2E Pertemuan 1'`, [cls.id])
+    check("Materi: buat topik; nama bentrok → ditolak per field", r?.ok && !!topic1 && !!(await act(rina, KP, MT, "createTopic", [cls.id, PREV, form({ name: "E2E Pertemuan 1" })]))?.fieldErrors?.name, JSON.stringify(r))
+    await act(rina, KP, MT, "createMaterial", [cls.id, PREV, form({ title: "E2E Bacaan Rekursi", type: "TEXT", content: "E2E isi bacaan rekursi", topicId: topic1.id, publish: "on" })])
+    await act(rina, KP, MT, "createMaterial", [cls.id, PREV, form({ title: "E2E Video Rekursi", type: "LINK", url: "https://www.youtube.com/watch?v=e2e", topicId: topic1.id })])
+    r = await act(rina, KP, MT, "createMaterial", [cls.id, PREV, form({ title: "E2E Modul PDF", type: "FILE", file: new File(["%PDF-1.4 e2e"], "modul.pdf"), publish: "on" })])
+    const [mText, mLink, mFile] = [await matOf("E2E Bacaan Rekursi"), await matOf("E2E Video Rekursi"), await matOf("E2E Modul PDF")]
+    check("Materi: teks (terbit), tautan (draf), berkas (terbit) tersimpan; berkas ada di disk", r?.ok && mText?.status === "PUBLISHED" && !!mText.publishedAt && mLink?.status === "DRAFT" && mLink.topicId === topic1.id && mFile?.type === "FILE" && fs.existsSync(`${ROOT}/uploads/${mFile.storageKey}`), JSON.stringify([r, mText, mLink, mFile]))
+
+    const pMat = await html(p1, KP)
+    check("Materi: mahasiswa melihat materi terbit per topik, draf tersembunyi", pMat.includes("E2E Pertemuan 1") && pMat.includes("E2E Bacaan Rekursi") && pMat.includes("E2E Modul PDF") && !pMat.includes("E2E Video Rekursi"))
+    check("Materi: pengajar melihat draf beserta tombol Terbitkan", (await html(rina, KP)).includes("E2E Video Rekursi"))
+    const outsider = await login("2401002")
+    check("Materi: bukan anggota tidak melihat materi kelas", !(await html(outsider, KP)).includes("E2E Bacaan Rekursi"))
+    const mDl = await get(p1, `/materi-berkas/${mFile.id}`)
+    check("Materi: anggota mengunduh berkas → attachment + CSP sandbox", mDl.status === 200 && /attachment/.test(mDl.headers.get("content-disposition") ?? "") && /sandbox/.test(mDl.headers.get("content-security-policy") ?? ""), mDl.status)
+    const [dlOut, dlDraft, dlBudi] = [await get(outsider, `/materi-berkas/${mFile.id}`), await get(p1, `/materi-berkas/${mLink.id}`), await get(budi, `/materi-berkas/${mFile.id}`)]
+    check("Materi: unduhan oleh bukan anggota / pengajar lain → 404", dlOut.status === 404 && dlDraft.status === 404 && dlBudi.status === 404, [dlOut.status, dlDraft.status, dlBudi.status])
+
+    r = await act(rina, KP, MT, "setMaterialPublished", [cls.id, mLink.id, true])
+    check("Materi: terbitkan draf → mahasiswa melihatnya", r?.ok && (await html(p1, KP)).includes("E2E Video Rekursi"), JSON.stringify(r))
+    await act(rina, KP, MT, "setMaterialPublished", [cls.id, mFile.id, false])
+    check("Materi: dijadikan draf → berkasnya tidak bisa diunduh mahasiswa", (await get(p1, `/materi-berkas/${mFile.id}`)).status === 404)
+    r = await act(rina, KP, MT, "moveMaterial", [cls.id, mLink.id, "up"])
+    check("Materi: atur urutan di dalam topik", r?.ok && (await matOf("E2E Video Rekursi")).sortOrder < (await matOf("E2E Bacaan Rekursi")).sortOrder, JSON.stringify(r))
+    // Halaman detail materi: RBAC (anti-IDOR), progres "Selesai dibaca", diskusi
+    const MD = (mid, gid = cls.id) => `/kelas/${gid}/materi/${mid}`
+    check("Detail materi: anggota membuka materi terbit", (await html(p1, MD(mText.id))).includes("E2E isi bacaan rekursi"))
+    const [dOut, dBudi, dDraft, dSwap] = await Promise.all([html(outsider, MD(mText.id)), html(budi, MD(mText.id)), html(p1, MD(mFile.id)), html(p1, MD(mText.id, ifa.id))])
+    check("Detail materi: bukan anggota / pengajar lain / draf / id kelas ditukar → tidak ditemukan", ![dOut, dBudi, dSwap].some((h) => h.includes("E2E isi bacaan rekursi")) && !dDraft.includes("Tandai selesai"))
+    r = await act(p1, MD(mText.id), MT, "setMaterialDone", [cls.id, mText.id, true])
+    const rDoneOut = await act(outsider, MD(mText.id), MT, "setMaterialDone", [cls.id, mText.id, true])
+    const rDoneDraft = await act(p1, MD(mFile.id), MT, "setMaterialDone", [cls.id, mFile.id, true])
+    const doneRows = async (mid) => (await one(`select count(*)::int n from material_progress where "materialId"=$1`, [mid])).n
+    check("Progres: anggota menandai selesai; bukan anggota & materi draf → ditolak", r?.ok && rDoneOut?.ok === false && rDoneDraft?.ok === false && (await doneRows(mText.id)) === 1 && (await doneRows(mFile.id)) === 0, JSON.stringify([r, rDoneOut, rDoneDraft]))
+    check("Progres: tandai dua kali tetap satu baris (idempoten)", (await act(p1, MD(mText.id), MT, "setMaterialDone", [cls.id, mText.id, true]))?.ok && (await doneRows(mText.id)) === 1)
+    const nStudents = (await one(`select count(*)::int n from group_members where "groupId"=$1 and role='STUDENT' and status='ACTIVE'`, [cls.id])).n
+    const plain = async (jar, p) => (await html(jar, p)).replace(/<!-- -->/g, "")
+    check("Progres: pengajar melihat jumlah & persentase mahasiswa yang selesai", (await plain(rina, MD(mText.id))).includes(`1 dari ${nStudents} mahasiswa aktif sudah menandai selesai dibaca (${Math.round(100 / nStudents)}%)`) && (await plain(rina, KP)).includes(`1/${nStudents} selesai`), nStudents)
+    check("Progres: pengajar tidak bisa menandai selesai (khusus peserta)", (await act(rina, MD(mText.id), MT, "setMaterialDone", [cls.id, mText.id, true]))?.ok !== true && (await doneRows(mText.id)) === 1)
+    r = await act(p1, MD(mText.id), MT, "addMaterialComment", [cls.id, mText.id, PREV, form({ body: "E2E Pak, contoh rekursi lain?" })])
+    const rCOut = await act(outsider, MD(mText.id), MT, "addMaterialComment", [cls.id, mText.id, PREV, form({ body: "E2E penyusup" })])
+    const rCEmpty = await act(p1, MD(mText.id), MT, "addMaterialComment", [cls.id, mText.id, PREV, form({ body: "  " })])
+    const rCDraft = await act(p1, MD(mFile.id), MT, "addMaterialComment", [cls.id, mFile.id, PREV, form({ body: "E2E draf" })])
+    check("Diskusi: anggota berkomentar; bukan anggota, komentar kosong, materi draf → ditolak", r?.ok && rCOut?.ok === false && !!rCEmpty?.fieldErrors?.body && rCDraft?.ok === false && (await one(`select count(*)::int n from material_comments where body like 'E2E%'`)).n === 1, JSON.stringify([r, rCOut, rCEmpty, rCDraft]))
+    await act(rina, MD(mText.id), MT, "addMaterialComment", [cls.id, mText.id, PREV, form({ body: "E2E Coba Fibonacci." })])
+    check("Diskusi: komentar pengajar & mahasiswa tampil untuk anggota lain", (await html(p5, MD(mText.id))).includes("E2E Coba Fibonacci.") && (await html(p5, MD(mText.id))).includes("E2E Pak, contoh rekursi lain?"))
+    const cP1 = await one(`select id from material_comments where body like 'E2E Pak%'`)
+    r = await act(p5, MD(mText.id), MT, "deleteMaterialComment", [cls.id, mText.id, cP1.id])
+    check("Diskusi: anggota lain menghapus komentar orang → ditolak; pengajar (moderasi) → berhasil", r?.ok === false && (await act(rina, MD(mText.id), MT, "deleteMaterialComment", [cls.id, mText.id, cP1.id]))?.ok && !(await one(`select 1 from material_comments where id=$1`, [cP1.id])), JSON.stringify(r))
+    r = await act(p1, MD(mText.id), MT, "setMaterialDone", [cls.id, mText.id, false])
+    check("Progres: batalkan tanda selesai", r?.ok && (await doneRows(mText.id)) === 0, JSON.stringify(r))
+
+    r = await act(budi, KP, MT, "setMaterialPublished", [cls.id, mFile.id, true])
+    check("Materi: IDOR terbitkan/hapus oleh pengajar lain → ditolak", r?.ok === false && (await act(budi, KP, MT, "deleteMaterial", [cls.id, mFile.id]))?.ok === false && !!(await matOf("E2E Modul PDF")), JSON.stringify(r))
+
+    r = await act(rina, KP, MT, "updateMaterial", [cls.id, mFile.id, PREV, form({ title: "E2E Modul PDF", type: "LINK", url: "https://example.com/modul", topicId: topic1.id })])
+    const mFile2 = await matOf("E2E Modul PDF")
+    check("Materi: ubah berkas → tautan + pindah topik; berkas lama dibersihkan dari disk", r?.ok && mFile2.type === "LINK" && !mFile2.storageKey && mFile2.topicId === topic1.id && !fs.existsSync(`${ROOT}/uploads/${mFile.storageKey}`), JSON.stringify([r, mFile2]))
+    r = await act(rina, KP, MT, "deleteTopic", [cls.id, topic1.id])
+    check("Materi: hapus topik → materinya pindah ke 'Tanpa topik', tidak terhapus", r?.ok && (await matOf("E2E Bacaan Rekursi"))?.topicId === null && !(await one(`select 1 from material_topics where id=$1`, [topic1.id])), JSON.stringify(r))
+    r = await act(rina, KP, MT, "deleteMaterial", [cls.id, mText.id])
+    check("Materi: hapus materi", r?.ok && !(await matOf("E2E Bacaan Rekursi")), JSON.stringify(r))
+
     // ---------- Fase 3a: kategori dinamis, jenis pekerjaan, tenggat, tanpa durasi ----------
     const CT = "kategori/actions"
     const wib = (ms) => new Date(ms + 7 * 3600_000).toISOString().slice(0, 16)
@@ -597,6 +674,47 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
     const tgDone = await html(p5, `/ujian/${tg.id}`)
     check("Peserta melihat nilai & komentar; tidak bisa membatalkan setelah dinilai", tgDone.includes("17.5") && tgDone.includes("Bagus, rapikan daftar pustaka.") && (await act(p5, T(tg.id), AS, "unsubmitAssignment", [tg.id]))?.ok === false)
     check("Rekap pengajar: Terlambat & nilai", (await html(rina, `/ujian-kelola/${tg.id}?tab=peserta`)).includes("Terlambat"))
+    // ---------- Langkah 3.5: Tugas kelas di Materi, jawaban tautan, Penilaian & Rekap, ekspor Excel ----------
+    const TK = { ...TG, title: "E2E Tugas Kelas Laporan 1", openToAll: undefined, groupId: [cls.id], maxPoints: 50 }
+    delete TK.openToAll
+    await act(rina, "/ujian-kelola/baru", K, "createExam", [PREV, form(TK)])
+    const tk = await one(`select id from exams where title=$1`, [TK.title])
+    await act(rina, `/ujian-kelola/${tk.id}`, K, "setExamPublished", [tk.id, true])
+    r = await act(rina, KP, MT, "createMaterial", [cls.id, PREV, form({ title: "", type: "ASSIGNMENT", examId: tk.id, publish: "on" })])
+    const tkMat = await one(`select id, title, type, "examId" from materials where "examId"=$1`, [tk.id])
+    check("Materi Tugas: menautkan Tugas kelas (judul kosong → judul Tugas)", r?.ok && tkMat?.type === "ASSIGNMENT" && tkMat.title === TK.title, JSON.stringify([r, tkMat]))
+    const rDupTask = await act(rina, KP, MT, "createMaterial", [cls.id, PREV, form({ title: "", type: "ASSIGNMENT", examId: tk.id })])
+    const rForeignTask = await act(rina, KP, MT, "createMaterial", [cls.id, PREV, form({ title: "x", type: "ASSIGNMENT", examId: tg.id })])
+    check("Materi Tugas: tautan ganda & Tugas yang tidak ditujukan ke kelas → ditolak per field", !!rDupTask?.fieldErrors?.examId && !!rForeignTask?.fieldErrors?.examId, JSON.stringify([rDupTask, rForeignTask]))
+    const p1Mat = await html(p1, KP)
+    check("Materi Tugas: mahasiswa melihat kartu Tugas + status, tautan ke halaman Tugas", p1Mat.includes(TK.title) && p1Mat.includes(`href="/ujian/${tk.id}"`) && p1Mat.includes("Lewat tenggat"))
+
+    r = await act(p1, T(tk.id), AS, "saveAssignmentLink", [tk.id, "javascript:alert(1)"])
+    check("Jawaban tautan: javascript: → ditolak", r?.ok === false, JSON.stringify(r))
+    await act(p1, T(tk.id), AS, "saveAssignmentLink", [tk.id, "https://drive.google.com/e2e-laporan"])
+    r = await act(p1, T(tk.id), AS, "submitAssignment", [tk.id, ""])
+    const tkAtt = await one(`select id, status, "submissionUrl", "isLate" from attempts where "examId"=$1`, [tk.id])
+    check("Jawaban tautan saja → bisa diserahkan (terlambat), tautan tersimpan", r?.ok && tkAtt?.status === "SUBMITTED" && tkAtt.submissionUrl === "https://drive.google.com/e2e-laporan" && tkAtt.isLate, JSON.stringify([r, tkAtt]))
+    check("Halaman penilaian pengajar menampilkan tautan jawaban", (await html(rina, `/ujian-kelola/${tk.id}/koreksi/${tkAtt.id}`)).includes("https://drive.google.com/e2e-laporan"))
+    check("Rekap: diserahkan belum dinilai → 'Perlu dinilai' di tab Penilaian & Rekap", (await html(rina, `/kelas/${cls.id}?tab=nilai`)).includes("Perlu dinilai"))
+    await act(rina, `/ujian-kelola/${tk.id}/koreksi/${tkAtt.id}`, K, "gradeAssignment", [tkAtt.id, PREV, form({ points: "40", feedback: "E2E Analisis kurang dalam." })])
+    check("Panel Tugas Anda: mahasiswa melihat nilai & feedback", (await html(p1, T(tk.id))).includes("E2E Analisis kurang dalam."))
+
+    const xlsx = async (jar, path) => { const res = await get(jar, path); if (res.status !== 200) return { status: res.status }; const wb = new ExcelJS.Workbook(); await wb.xlsx.load(Buffer.from(await res.arrayBuffer())); return { status: 200, ws: wb.worksheets[0] } }
+    const rowsOf = (ws) => { const head = ws.getRow(4).values.slice(1); const out = []; ws.eachRow((row, n) => { if (n > 4 && typeof row.getCell(1).value === "number") out.push(Object.fromEntries(head.map((h, i) => [h, row.getCell(i + 1).value]))) }); return out }
+    const rekap = await xlsx(rina, `/kelas/${cls.id}/ekspor`)
+    const rk = rekap.ws ? rowsOf(rekap.ws) : []
+    const colTk = Object.keys(rk[0] ?? {}).find((h) => h.startsWith(TK.title))
+    const rkAndi = rk.find((x) => x["NIM/Username"] === "2401001"), rkOther = rk.find((x) => x["NIM/Username"] === "2401007")
+    check("Ekspor rekap: kolom per Tugas + Rata-Rata Tugas; dinilai 40/50 → 80, tidak mengumpulkan → 0", rekap.status === 200 && !!colTk && rkAndi?.[colTk] === 80 && rkAndi["Rata-Rata Tugas"] === 80 && rkOther?.[colTk] === 0, JSON.stringify([rekap.status, colTk, rkAndi, rkOther]))
+    const per = await xlsx(rina, `/kelas/${cls.id}/ekspor/${tk.id}`)
+    const pr = per.ws ? rowsOf(per.ws) : []
+    const prAndi = pr.find((x) => x["NIM/Username"] === "2401001"), prOther = pr.find((x) => x["NIM/Username"] === "2401007")
+    check("Ekspor per tugas: semua mahasiswa kelas (termasuk yang belum), status/poin/tautan/feedback", per.status === 200 && pr.length === rk.length && prAndi?.Status === "Dinilai" && prAndi["Poin (maks. 50)"] === 40 && prAndi.Terlambat === "Ya" && prAndi["Tautan jawaban"] === "https://drive.google.com/e2e-laporan" && prAndi.Feedback === "E2E Analisis kurang dalam." && prOther?.Status === "Tidak mengumpulkan", JSON.stringify([per.status, prAndi, prOther]))
+    const [eBudi, eStu, eForeign] = [await get(budi, `/kelas/${cls.id}/ekspor`), await get(p1, `/kelas/${cls.id}/ekspor/${tk.id}`), await get(rina, `/kelas/${cls.id}/ekspor/${tg.id}`)]
+    check("Ekspor: pengajar lain → 404, mahasiswa → ditolak, tugas di luar kelas → 404", eBudi.status === 404 && eStu.status !== 200 && eForeign.status === 404, [eBudi.status, eStu.status, eForeign.status])
+    check("Tab Penilaian & Rekap tidak terlihat oleh mahasiswa", !(await html(p1, `/kelas/${cls.id}?tab=nilai`)).includes("Rata-Rata Tugas"))
+
     // ---------- Fase 4: Sesi ujian publik (jalur umum) ----------
     const SS = "ujian-kelola/session-actions"
     const PUB = { subjectId: algo.id, title: "E2E Ujian Publik TPA", categoryId: "cat_tes", workType: "QUIZ", durationMinutes: 30, maxAttempts: 1, questionsPerPage: 1 }
@@ -724,6 +842,7 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
       for (const a of savedFeatures.access) await act(sa, "/admin/fitur", F, "setFeatureRole", [a.featureKey, a.role, a.enabled])
       for (const f of savedFeatures.features) if (!f.enabled) await act(sa, "/admin/fitur", F, "setFeatureGlobal", [f.key, false])
     }
+    for (const f of await all(`select m."storageKey" from materials m join groups g on g.id=m."groupId" where g.name like 'E2E%' and m."storageKey" is not null`)) fs.rmSync(`${ROOT}/uploads/${f.storageKey}`, { force: true })
     await pg.query(`delete from groups where name like 'E2E%'`)
     for (const f of await all(`select sf."storageKey" from submission_files sf join attempts a on a.id=sf."attemptId" join exams e on e.id=a."examId" where e.title like 'E2E%'`)) fs.rmSync(`${ROOT}/uploads/${f.storageKey}`, { force: true })
     for (const f of await all(`select a."storageKey" from exam_attachments a join exams e on e.id=a."examId" where e.title like 'E2E%'`)) fs.rmSync(`${ROOT}/uploads/${f.storageKey}`, { force: true })

@@ -142,6 +142,7 @@ model User {
   updatedAt          DateTime  @updatedAt
 
   teaching        SubjectLecturer[]
+  personalSpace   Subject?             @relation("PersonalSpace")
   memberships     GroupMember[]
   questions       Question[]
   examsCreated    Exam[]
@@ -194,6 +195,12 @@ model Subject {
   isActive    Boolean     @default(true)
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
+  /// Ruang ajar: mata uji bayangan milik satu pengajar untuk Tugas/Pertanyaan dari "+ Buat".
+  /// Disembunyikan dari daftar mata uji; akses ujiannya dihitung dari kelas tujuan, bukan pengampu.
+  isPersonalSpace Boolean @default(false)
+  /// Pemilik ruang ajar (satu per pengajar). SetNull bila akun dihapus: nilai mahasiswa tetap aman.
+  ownerId         String? @unique
+  owner           User?   @relation("PersonalSpace", fields: [ownerId], references: [id], onDelete: SetNull)
 
   lecturers SubjectLecturer[]
   questions Question[]

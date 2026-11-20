@@ -3,7 +3,7 @@ import Link from "next/link"
 import { ArrowRight, BookOpenText, CalendarClock, ClipboardList, FilePen, Library, MonitorCheck, Plus, Sparkles, Trophy, Users } from "lucide-react"
 import { db } from "@/lib/db"
 import { isAdmin, requireRole, type CurrentUser } from "@/lib/auth/dal"
-import { managedSubjects } from "@/lib/data/access"
+import { managedExams, managedSubjects } from "@/lib/data/access"
 import { getTexts } from "@/lib/site/config"
 import { JoinClassDialog } from "@/components/classes/join-class"
 import { fill } from "@/content/texts"
@@ -55,18 +55,19 @@ async function Welcome({ name, subtitle, action }: { name: string; subtitle: str
 
 async function StaffDashboard({ user }: { user: CurrentUser }) {
   const scope = { subject: managedSubjects(user) }
+  const examScope = managedExams(user)
   const [features, t] = await Promise.all([enabledFeatures(user.role), getTexts()])
   const [subjects, questions, participants, exams, toGrade, recentLogs] = await Promise.all([
     db.subject.count({ where: managedSubjects(user) }),
     db.question.count({ where: scope }),
     db.user.count({ where: { role: "PESERTA", isActive: true } }),
     db.exam.findMany({
-      where: scope,
+      where: examScope,
       orderBy: { createdAt: "desc" },
       take: 60,
-      select: { id: true, title: true, kind: true, category: { select: { name: true } }, publishedAt: true, sessionActive: true, startAt: true, endAt: true, durationMinutes: true, subject: { select: { code: true } } },
+      select: { id: true, title: true, kind: true, category: { select: { name: true } }, publishedAt: true, sessionActive: true, startAt: true, endAt: true, durationMinutes: true, subject: { select: { code: true, isPersonalSpace: true } } },
     }),
-    db.attempt.groupBy({ by: ["examId"], where: { status: "SUBMITTED", exam: scope }, _count: true }),
+    db.attempt.groupBy({ by: ["examId"], where: { status: "SUBMITTED", exam: examScope }, _count: true }),
     isAdmin(user)
       ? db.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 6, select: { id: true, action: true, createdAt: true, user: { select: { name: true } } } })
       : Promise.resolve([]),
@@ -78,7 +79,7 @@ async function StaffDashboard({ user }: { user: CurrentUser }) {
   // Rata-rata nilai 8 ujian terakhir yang sudah memiliki nilai.
   const graded = await db.attempt.groupBy({
     by: ["examId"],
-    where: { exam: scope, score: { not: null } },
+    where: { exam: examScope, score: { not: null } },
     _avg: { score: true },
     _count: true,
   })
@@ -88,7 +89,7 @@ async function StaffDashboard({ user }: { user: CurrentUser }) {
     .slice(0, 8)
     .map((g) => {
       const e = examTitle.get(g.examId)!
-      return { label: `${examLabel(e)} ${e.subject.code}`, value: round2(g._avg.score ?? 0), hint: `${e.title} · ${g._count} peserta` }
+      return { label: e.subject.isPersonalSpace ? examLabel(e) : `${examLabel(e)} ${e.subject.code}`, value: round2(g._avg.score ?? 0), hint: `${e.title} · ${g._count} peserta` }
     })
   const toGradeTotal = toGrade.reduce((s, g) => s + g._count, 0)
 

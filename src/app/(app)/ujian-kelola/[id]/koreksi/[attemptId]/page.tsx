@@ -5,7 +5,7 @@ import { ArrowLeft, Check, X } from "lucide-react"
 import { db } from "@/lib/db"
 import { requireRole } from "@/lib/auth/dal"
 import { STAFF } from "@/lib/auth/roles"
-import { managedSubjects } from "@/lib/data/access"
+import { managedExams } from "@/lib/data/access"
 import { formatDateTime } from "@/lib/format"
 import { QUESTION_TYPE_LABEL } from "@/lib/labels"
 import { cn } from "@/lib/utils"
@@ -28,7 +28,7 @@ export default async function GradeAttemptPage({ params }: PageProps<"/ujian-kel
   const user = await requireRole(...STAFF)
   const { id, attemptId } = await params
   const attempt = await db.attempt.findFirst({
-    where: { id: attemptId, examId: id, status: { not: "IN_PROGRESS" }, exam: { subject: managedSubjects(user) } },
+    where: { id: attemptId, examId: id, status: { not: "IN_PROGRESS" }, exam: managedExams(user) },
     include: {
       user: { select: { name: true, username: true, email: true } },
       gradedBy: { select: { name: true } },

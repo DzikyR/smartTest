@@ -29,3 +29,13 @@ export const WORK_TYPE_LABEL = { QUIZ: "Tugas Kuis", QUESTION: "Pertanyaan", ASS
 
 /** UTS/UAS memakai pengamanan tingkat 2 (Safe Exam Browser) secara bawaan. */
 export const isHighStakes = (kind: ExamKind | string) => kind === "UTS" || kind === "UAS"
+
+/**
+ * Asal pekerjaan untuk ditampilkan: "KODE · Nama" untuk mata uji resmi. Ruang ajar
+ * (mata uji bayangan) tidak menampilkan kode internal RA-xxxx: staf melihat
+ * "Ruang ajar · <kelas tujuan>", peserta melihat nama ruang ajarnya.
+ */
+export function subjectLabel(subject: { code: string; name: string; isPersonalSpace?: boolean }, classNames?: string[]) {
+  if (!subject.isPersonalSpace) return `${subject.code} · ${subject.name}`
+  return classNames?.length ? `Ruang ajar · ${classNames.join(", ")}` : subject.name
+}

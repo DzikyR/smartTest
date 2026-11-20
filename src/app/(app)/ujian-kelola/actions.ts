@@ -8,7 +8,7 @@ import { db } from "@/lib/db"
 import { audit } from "@/lib/audit"
 import { requireRole, type CurrentUser } from "@/lib/auth/dal"
 import { STAFF } from "@/lib/auth/roles"
-import { canManageSubject, getManagedExam, managedSubjects } from "@/lib/data/access"
+import { canManageSubject, getManagedExam, managedExams } from "@/lib/data/access"
 import { targetableClasses } from "@/lib/classes/access"
 import { removeStoredFiles } from "@/lib/submissions/storage"
 import { removeUnusedFiles } from "@/lib/classes/materials"
@@ -83,12 +83,20 @@ const examSchema = z
     if (rulesError) ctx.addIssue({ code: "custom", path: ["rules"], message: rulesError })
   })
 
+/** Pekerjaan di ruang ajar: mata uji, jenis, & kelas tujuan dikunci (satu salinan per kelas, dibuat dari "+ Buat"). */
+type PersonalLock = { subjectId: string; workType: "QUIZ" | "ASSIGNMENT" | "QUESTION" }
+
 /** `examId` saat mengubah: kelas yang sudah terpasang di ujian ini tetap boleh dipertahankan. */
-async function parseExam(user: CurrentUser, formData: FormData, examId?: string) {
+async function parseExam(user: CurrentUser, formData: FormData, examId?: string, lock?: PersonalLock) {
   const parsed = examSchema.safeParse(formObject(formData))
   if (!parsed.success) return { error: zodFail(parsed.error) }
   const { hideScore, untimed, ...v } = parsed.data
-  if (!(await canManageSubject(user, v.subjectId))) return { error: fail("Mata uji tidak valid.", { subjectId: "Pilih mata uji yang Anda kelola" }) }
+  if (lock) {
+    // Nilai form diabaikan: ruang ajar tidak pernah dipilih/ditinggalkan lewat form ujian.
+    v.subjectId = lock.subjectId
+    v.workType = lock.workType
+    v.openToAll = false
+  } else if (!(await canManageSubject(user, v.subjectId))) return { error: fail("Mata uji tidak valid.", { subjectId: "Pilih mata uji yang Anda kelola" }) }
   // Kategori menentukan perilaku dasar (kind) — nilai kind dari klien tidak dipercaya bila kategori dipilih.
   if (v.categoryId) {
     const category = await db.examCategory.findFirst({ where: { id: v.categoryId, OR: [{ isActive: true }, ...(examId ? [{ exams: { some: { id: examId } } }] : [])] }, select: { kind: true } })
@@ -124,13 +132,16 @@ export async function updateExam(examId: string, _prev: ActionResult, formData: 
   const user = await requireRole(...STAFF)
   const exam = await getManagedExam(user, examId)
   if (!exam) return fail(DENIED)
-  const { data, groups, error } = await parseExam(user, formData, examId)
+  const personal = exam.subject.isPersonalSpace
+  const { data, groups, error } = await parseExam(user, formData, examId, personal ? { subjectId: exam.subjectId, workType: exam.workType } : undefined)
   if (error) return error
   if (data.subjectId !== exam.subjectId && exam._count.attempts > 0) return fail("Mata uji tidak dapat diganti setelah ada peserta.", { subjectId: "Terkunci" })
   await db.$transaction([
     db.exam.update({ where: { id: examId }, data }),
-    db.examGroup.deleteMany({ where: { examId } }),
-    db.examGroup.createMany({ data: groups.map((groupId) => ({ examId, groupId })) }),
+    // Ruang ajar: kelas tujuan tetap (hak akses pengajar dihitung dari kelas itu)
+    ...(personal
+      ? []
+      : [db.examGroup.deleteMany({ where: { examId } }), db.examGroup.createMany({ data: groups.map((groupId) => ({ examId, groupId })) })]),
   ])
   await audit("EXAM_UPDATED", { userId: user.id, entity: "Exam", entityId: examId })
   // Tanpa ini halaman Ubah yang pernah dibuka tersaji dari cache router dengan jam lama;
@@ -334,7 +345,7 @@ export async function removeExamQuestions(examId: string, ids: string[]): Promis
 
 async function managedAttempt(user: CurrentUser, attemptId: string) {
   return db.attempt.findFirst({
-    where: { id: attemptId, exam: { subject: managedSubjects(user) } },
+    where: { id: attemptId, exam: managedExams(user) },
     include: { exam: { select: { id: true, durationMinutes: true, endAt: true } }, user: { select: { name: true } } },
   })
 }
@@ -366,7 +377,7 @@ const RESET_DENIED = "Percobaan tidak ditemukan, bukan percobaan terakhir pesert
 /** Hanya percobaan terakhir peserta (yang berjalan, atau yang terakhir dikumpulkan) yang boleh direset. */
 async function latestManagedAttempt(user: CurrentUser, attemptId: string) {
   const attempt = await db.attempt.findFirst({
-    where: { id: attemptId, exam: { subject: managedSubjects(user) } },
+    where: { id: attemptId, exam: managedExams(user) },
     include: { exam: { select: { id: true, durationMinutes: true, timed: true, endAt: true, workType: true } }, user: { select: { name: true } } },
   })
   if (!attempt || attempt.exam.workType === "ASSIGNMENT") return null
@@ -479,7 +490,7 @@ export async function gradeAttempt(attemptId: string, _prev: ActionResult, formD
 export async function gradeAssignment(attemptId: string, _prev: ActionResult, formData: FormData) {
   const user = await requireRole(...STAFF)
   const attempt = await db.attempt.findFirst({
-    where: { id: attemptId, status: { in: ["SUBMITTED", "GRADED"] }, exam: { workType: "ASSIGNMENT", subject: managedSubjects(user) } },
+    where: { id: attemptId, status: { in: ["SUBMITTED", "GRADED"] }, exam: { AND: [{ workType: "ASSIGNMENT" }, managedExams(user)] } },
     select: { id: true, status: true, score: true, exam: { select: { maxPoints: true } }, user: { select: { name: true } } },
   })
   if (!attempt) return fail("Tugas tidak ditemukan, belum diserahkan, atau di luar kewenangan Anda.")

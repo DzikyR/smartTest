@@ -2,7 +2,7 @@ import Link from "next/link"
 import { ArrowDown, ArrowUp, CheckCircle2, Circle, Download, ExternalLink, FolderPlus, Paperclip, Pencil, Trash2 } from "lucide-react"
 import { db } from "@/lib/db"
 import type { CurrentUser } from "@/lib/auth/dal"
-import { canManageSubject, managedSubjects } from "@/lib/data/access"
+import { managedSubjects } from "@/lib/data/access"
 import { ACTIVE_STUDENT, managedClasses } from "@/lib/classes/access"
 import { attachmentSelect } from "@/lib/classes/materials"
 import { POST_KIND_LABEL, type PostKindValue } from "@/lib/classes/posts"
@@ -212,14 +212,8 @@ export async function StudentMaterials({ groupId, userId }: { groupId: string; u
 // Pengajar: semua postingan (draf & terbit), "+ Buat", topik & urutan
 // ---------------------------------------------------------------------------
 
-/** Alasan Tugas/Pertanyaan tidak bisa dibuat di kelas ini (null = bisa). */
-async function workBlockedReason(user: CurrentUser, subjectId: string | null) {
-  if (!subjectId) return "Kelas belum punya mata uji — atur di tab Kode & Pengaturan"
-  return (await canManageSubject(user, subjectId)) ? null : "Hanya pengampu mata uji kelas ini"
-}
-
-export async function TeacherMaterials({ user, groupId, subjectId }: { user: CurrentUser; groupId: string; subjectId: string | null }) {
-  const [{ topics, materials }, students, quizzes, sourceClasses, workBlocked] = await Promise.all([
+export async function TeacherMaterials({ user, groupId }: { user: CurrentUser; groupId: string }) {
+  const [{ topics, materials }, students, quizzes, sourceClasses, otherClasses] = await Promise.all([
     loadMaterials(groupId),
     db.groupMember.count({ where: { groupId, ...ACTIVE_STUDENT } }),
     // Tugas Kuis yang bisa ditautkan: ujian CBT berjenis kuis yang dikelola & belum tertaut di kelas ini
@@ -242,7 +236,13 @@ export async function TeacherMaterials({ user, groupId, subjectId }: { user: Cur
         materials: { orderBy: { createdAt: "desc" }, take: 200, select: { id: true, title: true, kind: true, topic: { select: { name: true } }, _count: { select: { attachments: true } } } },
       },
     }),
-    workBlockedReason(user, subjectId),
+    // Tujuan tambahan "+ Buat" (posting ke beberapa kelas): kelas aktif lain yang dikelola
+    db.group.findMany({
+      where: { AND: [managedClasses(user), { id: { not: groupId } }, { archivedAt: null }] },
+      orderBy: { name: "asc" },
+      take: 100,
+      select: { id: true, name: true, term: true },
+    }),
   ])
   const drafts = materials.filter((m) => m.status === "DRAFT").length
   const groups = sections(topics, materials)
@@ -279,7 +279,7 @@ export async function TeacherMaterials({ user, groupId, subjectId }: { user: Cur
             topics={topics}
             quizzes={quizzes.map((q) => ({ id: q.id, title: q.title, published: !!q.publishedAt, questions: q._count.questions }))}
             sources={sources}
-            workBlocked={workBlocked}
+            otherClasses={otherClasses}
           />
         </div>
       </div>

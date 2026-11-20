@@ -4,7 +4,7 @@ import { Award, BarChart3, ClipboardCheck } from "lucide-react"
 import { db } from "@/lib/db"
 import { requireFeature } from "@/lib/features/access"
 import { formatDateTime } from "@/lib/format"
-import { examLabel } from "@/lib/labels"
+import { examLabel, subjectLabel } from "@/lib/labels"
 import { round2 } from "@/lib/exam/grading"
 import { cn } from "@/lib/utils"
 import { EmptyState, PageHeader, StatCard } from "@/components/shell/page-parts"
@@ -24,7 +24,7 @@ export default async function ResultsPage() {
       score: true,
       submittedAt: true,
       feedback: true,
-      exam: { select: { id: true, title: true, kind: true, category: { select: { name: true } }, showScore: true, passingScore: true, subject: { select: { code: true, name: true } } } },
+      exam: { select: { id: true, title: true, kind: true, category: { select: { name: true } }, showScore: true, passingScore: true, subject: { select: { code: true, name: true, isPersonalSpace: true } } } },
     },
   })
   const visible = attempts.filter((a) => a.exam.showScore && a.score !== null)
@@ -54,7 +54,7 @@ export default async function ResultsPage() {
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium">{a.exam.title}</span>
                       <span className="block truncate text-xs text-muted-foreground">
-                        {a.exam.subject.code} · {a.exam.subject.name} · {formatDateTime(a.submittedAt)}
+                        {subjectLabel(a.exam.subject)} · {formatDateTime(a.submittedAt)}
                         {a.attemptNo > 1 && ` · percobaan ${a.attemptNo}`}
                       </span>
                     </span>

@@ -1,19 +1,44 @@
 import "server-only"
+import { randomBytes } from "node:crypto"
+import type { Prisma } from "@/generated/prisma/client"
 import { db } from "@/lib/db"
 import { isAdmin, type CurrentUser } from "@/lib/auth/dal"
+import { managedClasses } from "@/lib/classes/access"
+import { prismaCode } from "@/lib/action-result"
 
 /**
  * Cakupan akses. Admin/Super Admin mengelola semua mata uji; dosen hanya mata
  * uji yang ia kelola (SubjectLecturer). Peserta hanya melihat ujian terbit yang
  * terbuka untuk semua, atau ditujukan ke kelompoknya.
  *
+ * RUANG AJAR (`Subject.isPersonalSpace`): mata uji bayangan milik satu pengajar,
+ * wadah Tugas/Pertanyaan yang dibuat dari "+ Buat" di kelas. Ruang ajar TIDAK
+ * PERNAH ikut `managedSubjects` (tersembunyi dari daftar mata uji, dropdown, dan
+ * statistik). Ujian di dalamnya dikelola menurut KELAS TUJUAN-nya (pemilik /
+ * co-teacher aktif kelas itu), lewat `managedExams` — bukan menurut pemilik ruang.
+ *
  * Loader mengembalikan null bila data tidak ada ATAU di luar cakupan, sehingga
  * halaman memanggil notFound() tanpa membocorkan keberadaannya.
  */
 
-/** Filter Prisma untuk mata uji yang dapat dikelola pengguna. */
-export function managedSubjects(user: CurrentUser) {
-  return isAdmin(user) ? {} : { lecturers: { some: { userId: user.id } } }
+/** Filter Prisma untuk mata uji RESMI yang dapat dikelola pengguna (ruang ajar tidak pernah ikut). */
+export function managedSubjects(user: CurrentUser): Prisma.SubjectWhereInput {
+  return isAdmin(user) ? { isPersonalSpace: false } : { isPersonalSpace: false, lecturers: { some: { userId: user.id } } }
+}
+
+/**
+ * Filter Prisma untuk ujian/pekerjaan yang dapat dikelola pengguna: ujian di mata
+ * uji resmi yang ia kelola, ATAU ujian di ruang ajar yang ditujukan ke kelas yang
+ * sedang ia kelola. Semua pemeriksaan akses ujian (staf) wajib lewat sini.
+ */
+export function managedExams(user: CurrentUser): Prisma.ExamWhereInput {
+  if (isAdmin(user)) return {}
+  return {
+    OR: [
+      { subject: managedSubjects(user) },
+      { subject: { isPersonalSpace: true }, groups: { some: { group: managedClasses(user) } } },
+    ],
+  }
 }
 
 export async function canManageSubject(user: CurrentUser, subjectId: string) {
@@ -28,15 +53,34 @@ export async function listManagedSubjects(user: CurrentUser) {
   })
 }
 
+/**
+ * Ruang ajar milik pengguna; dibuat otomatis saat pertama dibutuhkan (satu per
+ * pengguna, aman terhadap balapan lewat `ownerId @unique`).
+ */
+export async function ensurePersonalSpace(user: Pick<CurrentUser, "id" | "name">) {
+  const found = await db.subject.findUnique({ where: { ownerId: user.id }, select: { id: true } })
+  if (found) return found.id
+  try {
+    const created = await db.subject.create({
+      data: { code: `RA-${randomBytes(4).toString("hex").toUpperCase()}`, name: `Ruang ajar — ${user.name}`.slice(0, 150), type: "UMUM", isPersonalSpace: true, ownerId: user.id },
+      select: { id: true },
+    })
+    return created.id
+  } catch (e) {
+    if (prismaCode(e) !== "P2002") throw e
+    return (await db.subject.findUniqueOrThrow({ where: { ownerId: user.id }, select: { id: true } })).id
+  }
+}
+
 export async function getManagedQuestion(user: CurrentUser, id: string) {
   return db.question.findFirst({ where: { id, subject: managedSubjects(user) }, select: { id: true, subjectId: true } })
 }
 
 export async function getManagedExam(user: CurrentUser, examId: string) {
   return db.exam.findFirst({
-    where: { id: examId, subject: managedSubjects(user) },
+    where: { AND: [{ id: examId }, managedExams(user)] },
     include: {
-      subject: { select: { id: true, code: true, name: true, type: true } },
+      subject: { select: { id: true, code: true, name: true, type: true, isPersonalSpace: true } },
       category: { select: { name: true } },
       groups: { select: { group: { select: { id: true, name: true } } } },
       _count: { select: { questions: true, attempts: true, sessions: true } },
@@ -62,7 +106,7 @@ export function visibleExams(user: CurrentUser) {
 export async function getParticipantExam(user: CurrentUser, examId: string) {
   return db.exam.findFirst({
     where: { id: examId, ...visibleExams(user) },
-    include: { subject: { select: { code: true, name: true, type: true } }, category: { select: { name: true } }, _count: { select: { questions: true } } },
+    include: { subject: { select: { code: true, name: true, type: true, isPersonalSpace: true } }, category: { select: { name: true } }, _count: { select: { questions: true } } },
   })
 }
 

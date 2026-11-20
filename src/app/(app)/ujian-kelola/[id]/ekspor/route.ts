@@ -5,7 +5,7 @@ import { FEATURE_DISABLED } from "@/lib/features/registry"
 import { getManagedExam } from "@/lib/data/access"
 import { loadExamReport } from "@/lib/data/exam-report"
 import { formatDateTime } from "@/lib/format"
-import { examLabel } from "@/lib/labels"
+import { examLabel, subjectLabel } from "@/lib/labels"
 
 /** Ekspor rekap nilai ujian ke Excel: sheet Nilai + sheet Analisis Butir. */
 export async function GET(_request: Request, { params }: RouteContext<"/ujian-kelola/[id]/ekspor">) {
@@ -21,7 +21,7 @@ export async function GET(_request: Request, { params }: RouteContext<"/ujian-ke
   wb.creator = "SmartTest"
   const ws = wb.addWorksheet("Nilai")
   ws.addRow([`${examLabel(exam)} — ${exam.title}`]).font = { bold: true, size: 13 }
-  ws.addRow([`${exam.subject.code} · ${exam.subject.name} · durasi ${exam.durationMinutes} menit`])
+  ws.addRow([`${subjectLabel(exam.subject, exam.groups.map((g) => g.group.name))} · durasi ${exam.durationMinutes} menit`])
   ws.addRow([])
   const header = ws.addRow(["No", "Nama", "Username/NIM", "Email", "Status", "Percobaan", "Nilai terbaik", ...(exam.passingScore !== null ? ["Lulus"] : []), "Keluar halaman", "Dikumpulkan", "Terlambat"])
   header.font = { bold: true, color: { argb: "FFFFFFFF" } }

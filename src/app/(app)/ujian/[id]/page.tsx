@@ -6,7 +6,7 @@ import { db } from "@/lib/db"
 import { requireRole } from "@/lib/auth/dal"
 import { examWindow, getParticipantExam } from "@/lib/data/access"
 import { formatDateTime } from "@/lib/format"
-import { examLabel } from "@/lib/labels"
+import { examLabel, subjectLabel } from "@/lib/labels"
 import { attemptDeadline } from "@/lib/exam/attempt"
 import { applyLayout, type ExamLayout } from "@/lib/exam/layout"
 import { checkExamEnvironment, deviceState, OTHER_DEVICE } from "@/lib/exam/guard"
@@ -98,7 +98,7 @@ export default async function TakeExamPage({ params }: PageProps<"/ujian/[id]">)
         <div className="absolute -top-16 -right-10 size-56 rounded-full bg-white/10" aria-hidden />
         <div className="relative">
           <p className="text-sm text-primary-foreground/80">
-            {exam.subject.code} · {exam.subject.name}
+            {subjectLabel(exam.subject)}
           </p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">{exam.title}</h1>
           <div className="mt-4 flex flex-wrap gap-2 text-sm">

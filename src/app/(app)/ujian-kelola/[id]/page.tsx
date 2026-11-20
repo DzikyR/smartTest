@@ -37,7 +37,7 @@ import { STAFF } from "@/lib/auth/roles"
 import { getManagedExam } from "@/lib/data/access"
 import { DISTRIBUTION_BUCKETS, loadExamReport } from "@/lib/data/exam-report"
 import { formatDateTime, formatTime } from "@/lib/format"
-import { examLabel, QUESTION_TYPE_LABEL, SUBJECT_TYPE_LABEL } from "@/lib/labels"
+import { examLabel, QUESTION_TYPE_LABEL, SUBJECT_TYPE_LABEL, subjectLabel } from "@/lib/labels"
 import { EXAM_STATUS, examStatus } from "@/lib/exam/status"
 import { examRules } from "@/lib/exam/rules"
 import { effectiveSebKeys } from "@/lib/exam/guard"
@@ -115,7 +115,7 @@ export default async function ExamDetailPage({ params, searchParams }: PageProps
               <span className="rounded-full bg-white/20 px-2.5 py-0.5 font-semibold">{examLabel(exam)}</span>
               <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-semibold", EXAM_STATUS[status].className)}>{EXAM_STATUS[status].label}</span>
               <span className="text-primary-foreground/80">
-                {exam.subject.code} · {exam.subject.name} ({SUBJECT_TYPE_LABEL[exam.subject.type]})
+                {exam.subject.isPersonalSpace ? subjectLabel(exam.subject, exam.groups.map((g) => g.group.name)) : `${subjectLabel(exam.subject)} (${SUBJECT_TYPE_LABEL[exam.subject.type]})`}
               </span>
             </div>
             <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">{exam.title}</h1>
@@ -381,12 +381,12 @@ async function QuestionsTab({
             >
               <BankPickerFields items={bank.map((b) => ({ ...b, used: used.has(b.id) }))} topics={topics} />
             </FormDialog>
-            {features.includes("bank-soal.massal") && (
+            {features.includes("bank-soal.massal") && !exam.subject.isPersonalSpace && (
               <Link href={`/bank-soal/massal?exam=${exam.id}`} className={buttonVariants({ variant: "outline", className: "rounded-xl" })}>
                 <Layers aria-hidden /> Buat massal
               </Link>
             )}
-            {features.includes("bank-soal.impor") && (
+            {features.includes("bank-soal.impor") && !exam.subject.isPersonalSpace && (
               <Link href={`/bank-soal/impor?subject=${exam.subjectId}`} className={buttonVariants({ variant: "outline", className: "rounded-xl" })}>
                 <FileUp aria-hidden /> Impor Word/Excel
               </Link>

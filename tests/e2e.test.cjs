@@ -709,7 +709,7 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
     r = await post(rina, "TUGAS", { title: TK.title, content: "E2E Kerjakan laporan bab 1.", maxPoints: "50", dueAt: wib(Date.now() - 3600_000), files: [pdf("panduan.pdf")], linkUrl: "https://example.com/rubrik", publish: "on" })
     const tkMat = await one(`select id, kind, "examId", status from materials where "groupId"=$1 and title=$2`, [cls.id, TK.title])
     const tk = await one(`select id, "workType", "maxPoints", "publishedAt", "dueAt", "subjectId", timed, "maxAttempts" from exams where id=$1`, [tkMat?.examId ?? ""])
-    check("+ Buat Tugas: postingan TUGAS + Tugas di mesin ujian (ASSIGNMENT, 50 poin, tenggat, terbit, ditujukan ke kelas) + 2 lampiran", r?.ok && tkMat?.kind === "TUGAS" && tk?.workType === "ASSIGNMENT" && tk.maxPoints === 50 && !!tk.publishedAt && !!tk.dueAt && tk.subjectId === algo.id && !tk.timed && tk.maxAttempts === 1 && !!(await one(`select 1 from exam_groups where "examId"=$1 and "groupId"=$2`, [tk.id, cls.id])) && (await attsOf(tkMat.id)).length === 2, JSON.stringify([r, tkMat, tk]))
+    check("+ Buat Tugas: postingan TUGAS + Tugas di mesin ujian (ASSIGNMENT, 50 poin, tenggat, terbit, ditujukan ke kelas) + 2 lampiran", r?.ok && tkMat?.kind === "TUGAS" && tk?.workType === "ASSIGNMENT" && tk.maxPoints === 50 && !!tk.publishedAt && !!tk.dueAt && tk.subjectId !== algo.id && !tk.timed && tk.maxAttempts === 1 && !!(await one(`select 1 from exam_groups where "examId"=$1 and "groupId"=$2`, [tk.id, cls.id])) && (await attsOf(tkMat.id)).length === 2, JSON.stringify([r, tkMat, tk]))
     const [rNoPts, rBudiTask] = [await post(rina, "TUGAS", { title: "E2E Tugas Tanpa Poin", maxPoints: "" }), await post(budi, "TUGAS", { title: "E2E Tugas Budi", maxPoints: "10" })]
     check("+ Buat Tugas: poin kosong → ditolak per field; pengajar lain → ditolak", !!rNoPts?.fieldErrors?.maxPoints && rBudiTask?.ok === false && !(await one(`select 1 from exams where title in ('E2E Tugas Tanpa Poin','E2E Tugas Budi')`)), JSON.stringify([rNoPts, rBudiTask]))
     const p1Mat = await html(p1, KP)
@@ -758,6 +758,78 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
     check("Hapus Pertanyaan yang belum dijawab → ujiannya ikut terhapus", r?.ok && !(await one(`select 1 from exams where id=$1`, [qm.examId])), JSON.stringify(r))
     r = await act(rina, KP, MT, "deleteMaterial", [cls.id, tkMat.id])
     check("Hapus postingan Tugas yang sudah dinilai → Tugas & nilainya tetap ada", r?.ok && !!(await one(`select 1 from attempts where "examId"=$1 and status='GRADED'`, [tk.id])), JSON.stringify(r))
+
+
+    // ---------- Ruang ajar + posting ke beberapa kelas (salinan per kelas, ala Google Classroom) ----------
+    const uid = async (u) => (await one(`select id from users where username=$1`, [u])).id
+    const rinaUidRA = await uid("dosen.rina"), budiUid2 = await uid("dosen.budi")
+    const mkClass = async (jar, name) => { await act(jar, "/kelas", KL, "createClass", [PREV, form({ name, subjectId: "", term: "", joinPolicy: "AUTO" })]); return one(`select id from groups where name=$1`, [name]) }
+    const [raA, raB, raC] = [await mkClass(rina, "E2E RA Kelas A"), await mkClass(rina, "E2E RA Kelas B"), await mkClass(rina, "E2E RA Kelas C")]
+    const raBudi = await mkClass(budi, "E2E RA Kelas Budi")
+    const enroll = (gid, u) => pg.query(`insert into group_members ("groupId","userId",role,status) values ($1,(select id from users where username=$2),'STUDENT','ACTIVE') on conflict do nothing`, [gid, u])
+    await enroll(raA.id, "2401001"); await enroll(raB.id, "2401005")
+    const copiesOf = async (title) => all(`select m.id mid, m."groupId", m."topicId", m."examId", e."subjectId", e."dueAt", e."workType", (select array_agg(eg."groupId") from exam_groups eg where eg."examId"=e.id) gids from materials m left join exams e on e.id=m."examId" where m.title=$1 and m."groupId" in ($2,$3,$4,$5) order by m."groupId"`, [title, raA.id, raB.id, raC.id, raBudi.id])
+    const RT = "E2E RA Tugas Laporan"
+    r = await post(rina, "TUGAS", { title: RT, content: "E2E kumpulkan laporan", maxPoints: "50", files: [pdf("rubrik-ra.pdf")], topicId: "__new__", newTopic: "E2E Minggu 1", targetGroupId: [raB.id, raC.id, raBudi.id], publish: "on" }, raA.id)
+    const rtCopies = await copiesOf(RT)
+    const space = await one(`select id, "isPersonalSpace", "ownerId", code from subjects where "ownerId"=$1`, [rinaUidRA])
+    check("Ruang ajar: kelas TANPA mata uji bisa membuat Tugas; ruang ajar pembuat dibuat otomatis", r?.ok && space?.isPersonalSpace === true && /^RA-/.test(space.code) && rtCopies.length > 0 && rtCopies.every((c) => c.subjectId === space.id), JSON.stringify([r, space, rtCopies]))
+    check("Posting ke beberapa kelas: 3 salinan terpisah (Exam & pengumpulan sendiri, tiap Exam hanya ditujukan ke kelasnya); kelas pengajar lain diabaikan", rtCopies.length === 3 && new Set(rtCopies.map((c) => c.examId)).size === 3 && rtCopies.every((c) => c.gids.length === 1 && c.gids[0] === c.groupId) && !rtCopies.some((c) => c.groupId === raBudi.id), JSON.stringify(rtCopies))
+    const rtKeys = (await all(`select distinct a."storageKey" from material_attachments a where a."materialId" = any($1)`, [rtCopies.map((c) => c.mid)])).map((x) => x.storageKey)
+    check("Posting ke beberapa kelas: lampiran diunggah SEKALI (semua salinan menunjuk berkas yang sama); topik dibuat per kelas menurut nama", rtKeys.length === 1 && fileOnDisk(rtKeys[0]) && (await one(`select count(*)::int n from material_topics where name='E2E Minggu 1' and "groupId" in ($1,$2,$3)`, [raA.id, raB.id, raC.id])).n === 3 && rtCopies.every((c) => !!c.topicId), JSON.stringify(rtKeys))
+    const [cA, cB, cC] = [raA, raB, raC].map((g) => rtCopies.find((c) => c.groupId === g.id))
+    r = await act(rina, `/kelas/${raA.id}?tab=materi`, MT, "updatePost", [raA.id, cA.mid, PREV, form({ title: RT, content: "E2E kumpulkan laporan", maxPoints: "50", dueAt: wib(Date.now() + 2 * 86400_000), topicId: cA.topicId, keepAttachment: (await attsOf(cA.mid)).map((x) => x.id) })])
+    const [dA, dB] = [await one(`select "dueAt" from exams where id=$1`, [cA.examId]), await one(`select "dueAt" from exams where id=$1`, [cB.examId])]
+    check("Tenggat per kelas: ubah tenggat Kelas A tidak mengubah Kelas B", r?.ok && !!dA.dueAt && dB.dueAt === null, JSON.stringify([r, dA, dB]))
+
+    const RQ = "E2E RA Pertanyaan cepat"
+    r = await post(rina, "PERTANYAAN", { title: RQ, qType: "ESSAY", maxPoints: "5", targetGroupId: [raB.id], publish: "on" }, raA.id)
+    const rqCopies = await copiesOf(RQ)
+    const rqN = await all(`select count(*)::int n from exam_questions where "examId" = any($1) group by "examId"`, [rqCopies.map((c) => c.examId)])
+    check("Pertanyaan ke 2 kelas: 2 ujian QUESTION di ruang ajar, masing-masing tepat 1 soal", r?.ok && rqCopies.length === 2 && rqCopies.every((c) => c.workType === "QUESTION" && c.subjectId === space.id) && rqN.length === 2 && rqN.every((x) => x.n === 1), JSON.stringify([r, rqCopies, rqN]))
+    const quizRA = await one(`select id from exams where title='E2E Kuis Struktur Data'`)
+    r = await post(rina, "TUGAS_KUIS", { examId: quizRA.id, targetGroupId: [raB.id] }, raA.id)
+    const kq = await all(`select "groupId" from materials where "examId"=$1 and "groupId" in ($2,$3)`, [quizRA.id, raA.id, raB.id])
+    const rKq = await post(rina, "TUGAS_KUIS", { examId: quizRA.id, targetGroupId: [raC.id] }, raA.id)
+    check("Tugas Kuis ke 2 kelas: ujian CBT yang SAMA ditautkan ke keduanya; sudah tertaut di salah satu tujuan → ditolak utuh", r?.ok && kq.length === 2 && rKq?.ok === false && !(await one(`select 1 from materials where "examId"=$1 and "groupId"=$2`, [quizRA.id, raC.id])), JSON.stringify([r, kq, rKq]))
+
+    // Mahasiswa: hanya salinan kelasnya
+    await act(p1, T(cA.examId), AS, "saveAssignmentLink", [cA.examId, "https://example.com/e2e-ra-a"])
+    await act(p1, T(cA.examId), AS, "submitAssignment", [cA.examId, ""])
+    await act(p5, T(cB.examId), AS, "saveAssignmentLink", [cB.examId, "https://example.com/e2e-ra-b"])
+    await act(p5, T(cB.examId), AS, "submitAssignment", [cB.examId, ""])
+    const [attA, attB] = [await one(`select id, status from attempts where "examId"=$1`, [cA.examId]), await one(`select id, status from attempts where "examId"=$1`, [cB.examId])]
+    const rCross = await act(p1, T(cB.examId), AS, "submitAssignment", [cB.examId, "x"])
+    check("Mahasiswa: mengumpulkan di salinan kelasnya; salinan kelas lain tidak terlihat & tidak bisa dikumpulkan", attA?.status === "SUBMITTED" && attB?.status === "SUBMITTED" && rCross?.ok !== true && !(await html(p1, T(cB.examId))).includes("e2e-ra-b") && (await one(`select count(*)::int n from attempts where "examId"=$1`, [cB.examId])).n === 1, JSON.stringify([attA, attB, rCross]))
+
+    // Co-teacher Kelas B: hanya Kelas B; akses hilang begitu dicabut
+    await act(rina, `/kelas/${raB.id}`, KL, "addCoTeacher", [raB.id, PREV, form({ identifier: "dosen.budi" })])
+    const [budiB, budiA] = [await html(budi, `/ujian-kelola/${cB.examId}`), await html(budi, `/ujian-kelola/${cA.examId}`)]
+    check("Co-teacher Kelas B membuka Tugas Kelas B (label 'Ruang ajar · kelas'); salinan Kelas A tidak ditemukan", budiB.includes(RT) && budiB.includes("Ruang ajar · E2E RA Kelas B") && !budiA.includes(RT))
+    const gB = await act(budi, `/ujian-kelola/${cB.examId}/koreksi/${attB.id}`, K, "gradeAssignment", [attB.id, PREV, form({ points: "45", feedback: "E2E ok" })])
+    const gA = await act(budi, `/ujian-kelola/${cA.examId}/koreksi/${attA.id}`, K, "gradeAssignment", [attA.id, PREV, form({ points: "1", feedback: "E2E bocor" })])
+    const [xA, xB] = [await get(budi, `/ujian-kelola/${cA.examId}/ekspor`), await get(budi, `/ujian-kelola/${cB.examId}/ekspor`)]
+    check("Co-teacher Kelas B: menilai Kelas B berhasil; menilai & mengekspor Kelas A → ditolak", gB?.ok && gA?.ok !== true && (await one(`select status from attempts where id=$1`, [attA.id])).status === "SUBMITTED" && xA.status === 404 && xB.status === 200, JSON.stringify([gB, gA, xA.status, xB.status]))
+    check("Kelola Ujian co-teacher: hanya salinan Kelas B", ((h) => h.includes("Ruang ajar · E2E RA Kelas B") && !h.includes("Ruang ajar · E2E RA Kelas A"))(await html(budi, "/ujian-kelola")))
+    // Gunakan kembali oleh co-teacher ke kelasnya sendiri → masuk ruang ajar PENYALIN
+    r = await act(budi, `/kelas/${raBudi.id}?tab=materi`, MT, "reusePost", [raBudi.id, PREV, form({ sourceId: cB.mid })])
+    const budiSpace = await one(`select id from subjects where "ownerId"=$1 and "isPersonalSpace"`, [budiUid2])
+    const reusedRA = (await copiesOf(RT)).find((c) => c.groupId === raBudi.id)
+    check("Gunakan kembali Tugas ruang ajar: salinan masuk ruang ajar penyalin & bisa dikelolanya", r?.ok && !!budiSpace && reusedRA?.subjectId === budiSpace.id && (await html(budi, `/ujian-kelola/${reusedRA.examId}`)).includes(RT), JSON.stringify([r, budiSpace, reusedRA]))
+    await act(rina, `/kelas/${raB.id}`, KL, "removeCoTeacher", [raB.id, budiUid2])
+    check("Co-teacher dicabut → Tugas Kelas B langsung tidak bisa dibuka/dinilai", !(await html(budi, `/ujian-kelola/${cB.examId}`)).includes(RT) && (await act(budi, `/ujian-kelola/${cB.examId}/koreksi/${attB.id}`, K, "gradeAssignment", [attB.id, PREV, form({ points: "2" })]))?.ok !== true)
+
+    // Ruang ajar tersembunyi dari daftar mata uji & form resmi
+    const hidden = [await html(rina, "/mata-uji"), await html(admin, "/mata-uji"), await html(rina, "/ujian-kelola/baru"), await html(rina, "/kelas"), await html(rina, `/kelas/${raA.id}?tab=pengaturan`), await html(rina, "/bank-soal")]
+    check("Ruang ajar tidak muncul di Mata Uji (dosen & admin), form ujian baru, form kelas, pengaturan kelas, Bank Soal", hidden.every((h) => !h.includes(space.code) && !h.includes("Ruang ajar — ")))
+    check("Kelola Ujian pemilik: Tugas ruang ajar tampil berlabel kelas", (await html(rina, "/ujian-kelola")).includes("Ruang ajar · E2E RA Kelas A"))
+    // Form Ubah ujian ruang ajar: mata uji, jenis, & kelas tujuan terkunci
+    const editRA = await html(rina, `/ujian-kelola/${cA.examId}/ubah`)
+    r = await act(rina, `/ujian-kelola/${cA.examId}/ubah`, K, "updateExam", [cA.examId, PREV, form({ subjectId: algo.id, title: RT, kind: "KUIS", workType: "QUIZ", durationMinutes: 30, maxAttempts: 1, questionsPerPage: 1, maxPoints: 50, openToAll: "on", groupId: [raB.id] })])
+    const eA = await one(`select "subjectId", "workType", "openToAll", (select array_agg("groupId") from exam_groups where "examId"=exams.id) gids from exams where id=$1`, [cA.examId])
+    check("Ubah ujian ruang ajar: form menampilkan label terkunci; kiriman mata uji/jenis/kelas/terbuka-semua diabaikan", editRA.includes("Ruang ajar · E2E RA Kelas A") && !editRA.includes(`value="${algo.id}"`) && eA.subjectId === space.id && eA.workType === "ASSIGNMENT" && eA.openToAll === false && eA.gids.join() === raA.id, JSON.stringify([r, eA]))
+    const rMs = await act(rina, "/mata-uji", "mata-uji/actions", "setSubjectActive", [space.id, false]).catch(() => null)
+    check("Ruang ajar tidak bisa diubah lewat menu Mata Uji", rMs?.ok !== true && (await one(`select "isActive" from subjects where id=$1`, [space.id])).isActive === true, JSON.stringify(rMs))
 
 
     // ---------- Fase 4: Sesi ujian publik (jalur umum) ----------
@@ -892,6 +964,7 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
     for (const f of await all(`select sf."storageKey" from submission_files sf join attempts a on a.id=sf."attemptId" join exams e on e.id=a."examId" where e.title like 'E2E%'`)) fs.rmSync(`${ROOT}/uploads/${f.storageKey}`, { force: true })
     for (const f of await all(`select a."storageKey" from exam_attachments a join exams e on e.id=a."examId" where e.title like 'E2E%'`)) fs.rmSync(`${ROOT}/uploads/${f.storageKey}`, { force: true })
     await pg.query(`delete from exams where title like 'E2E%'`)
+    await pg.query(`delete from subjects s where s."isPersonalSpace" and s."ownerId" in (select id from users where username in ('dosen.rina','dosen.budi')) and not exists (select 1 from exams e where e."subjectId"=s.id)`)
     await pg.query(`delete from questions where prompt like 'E2E%'`)
     await pg.query(`delete from exam_categories where name like 'E2E%'`)
     await pg.query(`delete from group_members where "groupId"=$1 and "userId"=(select id from users where username='2401005')`, [ifa.id])

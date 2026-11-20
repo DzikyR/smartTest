@@ -9,7 +9,7 @@ import { audit } from "@/lib/audit"
 import { requireRole, type CurrentUser } from "@/lib/auth/dal"
 import { STAFF } from "@/lib/auth/roles"
 import { isFeatureEnabled } from "@/lib/features/access"
-import { canManageSubject, getManagedExam } from "@/lib/data/access"
+import { ensurePersonalSpace, getManagedExam } from "@/lib/data/access"
 import { getManagedClass, managedClasses } from "@/lib/classes/access"
 import { getMaterialAccess, removeUnusedFiles } from "@/lib/classes/materials"
 import { checkFileBatch, parseLinks, POST_KIND_LABEL, POST_KINDS, reusableDueAt, type LinkAttachment, type PostKindValue } from "@/lib/classes/posts"
@@ -137,12 +137,19 @@ const dropNew = (a: NewAttachments) => removeStoredFiles(a.files.map((f) => f.st
 // Pekerjaan tertaut (Tugas / Pertanyaan dibuat di mesin ujian; Tugas Kuis memilih ujian CBT)
 // ---------------------------------------------------------------------------
 
-/** Tugas/Pertanyaan baru memakai mata uji kelas; pembuatnya wajib pengampu mata uji tsb. */
-async function classSubject(user: CurrentUser, groupId: string): Promise<string | ActionResult<never>> {
-  const g = await db.group.findUnique({ where: { id: groupId }, select: { subjectId: true } })
-  if (!g?.subjectId) return fail("Kelas ini belum terhubung ke mata uji. Pilih mata uji di tab “Kode & Pengaturan” agar bisa membuat Tugas atau Pertanyaan.")
-  if (!(await canManageSubject(user, g.subjectId))) return fail("Anda bukan pengampu mata uji kelas ini, jadi tidak bisa membuat Tugas atau Pertanyaan. Hubungi pengampu mata uji atau Admin.")
-  return g.subjectId
+/** Batas kelas tujuan satu postingan (posting ke beberapa kelas). */
+const MAX_TARGETS = 30
+
+/**
+ * Kelas tujuan "+ Buat": kelas asal (selalu pertama) + kelas lain yang dicentang,
+ * disaring ke kelas AKTIF yang dikelola pengguna — ID di luar itu diabaikan (anti-IDOR).
+ */
+async function targetClasses(user: CurrentUser, groupId: string, formData: FormData) {
+  const ids = [...new Set(formData.getAll("targetGroupId").map(String).filter((id) => id && id !== groupId))].slice(0, MAX_TARGETS)
+  const others = ids.length
+    ? await db.group.findMany({ where: { AND: [{ id: { in: ids } }, { archivedAt: null }, managedClasses(user)] }, orderBy: { name: "asc" }, select: { id: true, name: true } })
+    : []
+  return [{ id: groupId, name: "" }, ...others]
 }
 
 /** Kategori bawaan "Kuis" (sama dengan bawaan form ujian), bila ada. */
@@ -227,15 +234,12 @@ export async function createPost(groupId: string, kind: PostKindValue, _prev: Ac
   const errors = kindErrors(kind, v, false)
   if (Object.keys(errors).length) return fail("Periksa kembali isian yang ditandai.", errors)
 
+  // Kelas tujuan: kelas ini + kelas aktif lain yang DIKELOLA pengguna (ID lain diabaikan).
+  const targets = await targetClasses(user, groupId, formData)
+
   // Validasi pekerjaan tertaut sebelum menyentuh disk
-  let subjectId: string | null = null
   let question: ReturnType<typeof questionFromForm>["question"] | null = null
   let quiz: Awaited<ReturnType<typeof linkableQuiz>> = null
-  if (kind === "TUGAS" || kind === "PERTANYAAN") {
-    const s = await classSubject(user, groupId)
-    if (isResult(s)) return s
-    subjectId = s
-  }
   if (kind === "PERTANYAAN") {
     const q = questionFromForm(v, formData)
     if (q.error) return q.error
@@ -244,7 +248,8 @@ export async function createPost(groupId: string, kind: PostKindValue, _prev: Ac
   if (kind === "TUGAS_KUIS") {
     quiz = await linkableQuiz(user, v.examId!)
     if (!quiz) return fail("Ujian tidak ditemukan atau di luar kewenangan Anda.", { examId: "Tidak valid" })
-    if (await db.material.findFirst({ where: { groupId, examId: quiz.id }, select: { id: true } })) return workTaken()
+    const taken = await db.material.findMany({ where: { groupId: { in: targets.map((t) => t.id) }, examId: quiz.id }, select: { group: { select: { name: true } } } })
+    if (taken.length) return fail(`Ujian ini sudah ditautkan di kelas ${taken.map((t) => t.group.name).join(", ")}.`, { examId: "Sudah ditautkan" })
   }
 
   const topicId = await resolveTopic(groupId, v.topicId, v.newTopic)
@@ -254,62 +259,93 @@ export async function createPost(groupId: string, kind: PostKindValue, _prev: Ac
 
   const title = v.title || quiz?.title.slice(0, 150) || ""
   const now = new Date()
-  const sortOrder = await nextMaterialOrder(groupId, topicId)
-  const categoryId = subjectId ? await defaultCategoryId() : null
+  // Tugas/Pertanyaan selalu masuk RUANG AJAR pembuatnya (tanpa syarat mata uji kelas);
+  // akses pengelolaannya dihitung dari kelas tujuan (lihat managedExams).
+  let subjectId: string | null = null
+  let categoryId: string | null = null
+  let placed: { groupId: string; topicId: string | null; sortOrder: number }[]
   try {
+    if (kind === "TUGAS" || kind === "PERTANYAAN") {
+      subjectId = await ensurePersonalSpace(user)
+      categoryId = await defaultCategoryId()
+    }
+    // Topik di kelas lain disamakan menurut nama (dibuat bila belum ada), seperti "Gunakan kembali".
+    const topicName = topicId ? (await db.materialTopic.findUnique({ where: { id: topicId }, select: { name: true } }))?.name : null
+    placed = []
+    for (const t of targets) {
+      const tTopic = t.id === groupId ? topicId : topicName ? await ensureTopic(t.id, topicName) : null
+      placed.push({ groupId: t.id, topicId: tTopic, sortOrder: await nextMaterialOrder(t.id, tTopic) })
+    }
+  } catch (e) {
+    await dropNew(attachments)
+    throw e
+  }
+
+  try {
+    // Satu transaksi: salinan untuk SEMUA kelas tujuan dibuat, atau tidak sama sekali.
     await db.$transaction(async (tx) => {
-      let examId: string | null = null
-      if (subjectId) {
-        const exam = await tx.exam.create({
+      for (const target of placed) {
+        let examId: string | null = null
+        if (subjectId) {
+          const exam = await tx.exam.create({
+            data: {
+              ...WORK_DEFAULTS,
+              title,
+              instructions: v.content,
+              categoryId,
+              subjectId,
+              createdById: user.id,
+              workType: kind === "TUGAS" ? "ASSIGNMENT" : "QUESTION",
+              maxPoints: kind === "TUGAS" ? v.maxPoints : null,
+              dueAt: v.dueAt,
+              publishedAt: v.publish ? now : null,
+              groups: { create: [{ groupId: target.groupId }] },
+              ...(question ? { questions: { create: [question] } } : {}),
+            },
+            select: { id: true },
+          })
+          examId = exam.id
+        }
+        if (quiz) {
+          // Menautkan kuis = menujukannya ke kelas ini (struktur & alur CBT tidak berubah)
+          await tx.examGroup.upsert({ where: { examId_groupId: { examId: quiz.id, groupId: target.groupId } }, create: { examId: quiz.id, groupId: target.groupId }, update: {} })
+          examId = quiz.id
+        }
+        await tx.material.create({
           data: {
-            ...WORK_DEFAULTS,
+            kind,
             title,
-            instructions: v.content,
-            categoryId,
-            subjectId,
+            content: v.content,
+            groupId: target.groupId,
+            topicId: target.topicId,
+            examId,
             createdById: user.id,
-            workType: kind === "TUGAS" ? "ASSIGNMENT" : "QUESTION",
-            maxPoints: kind === "TUGAS" ? v.maxPoints : null,
-            dueAt: v.dueAt,
+            sortOrder: target.sortOrder,
+            status: v.publish ? "PUBLISHED" : "DRAFT",
             publishedAt: v.publish ? now : null,
-            groups: { create: [{ groupId }] },
-            ...(question ? { questions: { create: [question] } } : {}),
+            // Semua salinan menunjuk berkas fisik yang SAMA (tanpa unggah ulang)
+            attachments: { create: attachmentRows(attachments, 0) },
           },
-          select: { id: true },
         })
-        examId = exam.id
       }
-      if (quiz) {
-        // Menautkan kuis = menujukannya ke kelas ini (struktur & alur CBT tidak berubah)
-        await tx.examGroup.upsert({ where: { examId_groupId: { examId: quiz.id, groupId } }, create: { examId: quiz.id, groupId }, update: {} })
-        examId = quiz.id
-      }
-      await tx.material.create({
-        data: {
-          kind,
-          title,
-          content: v.content,
-          groupId,
-          topicId,
-          examId,
-          createdById: user.id,
-          sortOrder,
-          status: v.publish ? "PUBLISHED" : "DRAFT",
-          publishedAt: v.publish ? now : null,
-          attachments: { create: attachmentRows(attachments, 0) },
-        },
-      })
     })
   } catch (e) {
     await dropNew(attachments) // jangan tinggalkan berkas yatim bila DB gagal
     if (prismaCode(e) === "P2002") return workTaken()
     throw e
   }
-  await audit("MATERIAL_CREATED", { userId: user.id, entity: "Group", entityId: groupId, metadata: { title, kind, publish: v.publish, files: attachments.files.length, links: attachments.links.length } })
+  const others = targets.filter((t) => t.id !== groupId)
+  await audit("MATERIAL_CREATED", {
+    userId: user.id,
+    entity: "Group",
+    entityId: groupId,
+    metadata: { title, kind, publish: v.publish, files: attachments.files.length, links: attachments.links.length, alsoPostedTo: others.map((t) => t.id) },
+  })
   refresh()
   const label = POST_KIND_LABEL[kind]
+  const where = others.length ? ` di ${targets.length} kelas` : ""
   const quizNote = quiz && !quiz.publishedAt && v.publish ? " Ujian CBT-nya belum terbit, jadi mahasiswa belum melihatnya sampai ujian diterbitkan." : ""
-  return ok(v.publish ? `${label} "${title}" diterbitkan.${quizNote}` : `${label} "${title}" disimpan sebagai draf.`)
+  return ok(v.publish ? `${label} "${title}" diterbitkan${where}.${quizNote}` : `${label} "${title}" disimpan sebagai draf${where}.`)
 }
 
 // ---------------------------------------------------------------------------
@@ -331,7 +367,7 @@ export async function updatePost(groupId: string, materialId: string, _prev: Act
   const errors = kindErrors(kind, v, true)
   if (Object.keys(errors).length) return fail("Periksa kembali isian yang ditandai.", errors)
 
-  // Tugas/Pertanyaan: tenggat & skor tersimpan di ujiannya → wajib pengampu mata uji
+  // Tugas/Pertanyaan: tenggat & skor tersimpan di ujiannya → wajib berhak mengelola ujiannya (lihat managedExams)
   const work = (kind === "TUGAS" || kind === "PERTANYAAN") && current.examId ? await getManagedExam(user, current.examId) : null
   if ((kind === "TUGAS" || kind === "PERTANYAAN") && current.examId && !work) return fail(`Hanya pengampu mata uji yang dapat mengubah ${POST_KIND_LABEL[kind]} ini.`)
   if (work && v.dueAt && work.endAt && v.dueAt > work.endAt) return fail("Periksa tenggat.", { dueAt: "Tenggat tidak boleh setelah waktu tutup pekerjaan" })
@@ -474,6 +510,9 @@ export async function reusePost(groupId: string, _prev: ActionResult, formData: 
   if (src.examId && !exam) return fail(`Hanya pengampu mata uji yang dapat menggunakan kembali ${POST_KIND_LABEL[src.kind]} ini.`)
   if (src.kind === "TUGAS_KUIS" && exam && (await db.material.findFirst({ where: { groupId, examId: exam.id }, select: { id: true } }))) return workTaken()
   const questions = exam && src.kind !== "TUGAS_KUIS" ? await db.examQuestion.findMany({ where: { examId: exam.id }, orderBy: { order: "asc" } }) : []
+  // Salinan Tugas/Pertanyaan masuk ruang ajar PENYALIN (bukan mata uji/ruang ajar kelas sumber),
+  // sehingga pengelola kelas tujuan pasti berhak menilainya.
+  const copySubjectId = exam && src.kind !== "TUGAS_KUIS" ? await ensurePersonalSpace(user) : null
 
   const topicId = src.topic ? await ensureTopic(groupId, src.topic.name) : null
   const sortOrder = await nextMaterialOrder(groupId, topicId)
@@ -503,7 +542,7 @@ export async function reusePost(groupId: string, _prev: ActionResult, formData: 
             workType: exam.workType,
             maxPoints: exam.maxPoints,
             dueAt: reusableDueAt(exam.dueAt),
-            subjectId: exam.subjectId,
+            subjectId: copySubjectId!,
             createdById: user.id,
             groups: { create: [{ groupId }] },
             questions: {

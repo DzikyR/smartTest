@@ -4,9 +4,9 @@ import { CalendarClock, ChevronRight, Clock, FileQuestion, Plus, Users } from "l
 import { db } from "@/lib/db"
 import { requireRole } from "@/lib/auth/dal"
 import { STAFF } from "@/lib/auth/roles"
-import { managedSubjects } from "@/lib/data/access"
+import { managedExams } from "@/lib/data/access"
 import { formatDateTime } from "@/lib/format"
-import { examLabel } from "@/lib/labels"
+import { examLabel, subjectLabel } from "@/lib/labels"
 import { EXAM_STATUS, examStatus, type ExamStatus } from "@/lib/exam/status"
 import { cn } from "@/lib/utils"
 import { EmptyState, PageHeader, str, UrlTabs } from "@/components/shell/page-parts"
@@ -27,10 +27,10 @@ export default async function ManageExamsPage({ searchParams }: PageProps<"/ujia
   const sp = await searchParams
   const tab = TABS.find((t) => t.key === str(sp.tab)) ?? TABS[0]
   const exams = await db.exam.findMany({
-    where: { subject: managedSubjects(user) },
+    where: managedExams(user),
     orderBy: [{ startAt: { sort: "desc", nulls: "first" } }, { createdAt: "desc" }],
     include: {
-      subject: { select: { code: true, name: true } },
+      subject: { select: { code: true, name: true, isPersonalSpace: true } },
       category: { select: { name: true } },
       groups: { select: { group: { select: { name: true } } } },
       _count: { select: { questions: true } },
@@ -85,7 +85,7 @@ export default async function ManageExamsPage({ searchParams }: PageProps<"/ujia
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs text-muted-foreground">
-                      {e.subject.code} · {e.subject.name}
+                      {subjectLabel(e.subject, e.groups.map((g) => g.group.name))}
                     </p>
                     <h2 className="leading-snug font-semibold group-hover:text-primary">{e.title}</h2>
                   </div>

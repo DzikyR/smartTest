@@ -54,7 +54,7 @@ async function Lobby({ params }: { params: PageProps<"/sesi/[id]">["params"] }) 
       session: {
         include: {
           createdBy: { select: { name: true } },
-          exam: { include: { category: { select: { name: true } }, subject: { select: { code: true, name: true } }, _count: { select: { questions: true } } } },
+          exam: { include: { category: { select: { name: true } }, subject: { select: { code: true, name: true, isPersonalSpace: true } }, _count: { select: { questions: true } } } },
         },
       },
     },

@@ -68,6 +68,7 @@ export function ExamForm({
   defaults,
   submitLabel,
   preselectGroupId,
+  personalSpace,
 }: {
   action: FormAction
   subjects: { id: string; label: string }[]
@@ -78,6 +79,11 @@ export function ExamForm({
   submitLabel: string
   /** Ujian baru dari halaman kelas: kelas itu sudah tercentang. */
   preselectGroupId?: string
+  /**
+   * Pekerjaan di ruang ajar (dibuat dari "+ Buat" di kelas): mata uji, jenis
+   * pekerjaan, & kelas tujuan dikunci — server juga mengabaikan nilai ketiganya.
+   */
+  personalSpace?: { label: string }
 }) {
   const editing = !!defaults
   const initialCategory = categories.find((c) => c.id === defaults?.categoryId) ?? (defaults ? undefined : categories.find((c) => c.kind === "KUIS"))
@@ -94,15 +100,22 @@ export function ExamForm({
     <ActionForm action={action} submitLabel={submitLabel} className="gap-5" footerClassName="sticky bottom-0 -mx-1 rounded-2xl bg-background/90 p-3 backdrop-blur">
       <Section icon={Clock} title="Informasi & waktu" hint="Admin/dosen menentukan berapa lama soal boleh dikerjakan.">
         <div className="grid gap-4 md:grid-cols-2">
-          <FormField name="subjectId" label="Mata uji">
-            <NativeSelect id="subjectId" name="subjectId" defaultValue={defaults?.subjectId ?? subjects[0]?.id}>
-              {subjects.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
-                </option>
-              ))}
-            </NativeSelect>
-          </FormField>
+          {personalSpace ? (
+            <FormField name="subjectId" label="Mata uji" hint="Dibuat dari kelas; tidak dapat dipindah ke mata uji lain.">
+              <input type="hidden" name="subjectId" value={defaults?.subjectId} />
+              <p className="flex h-9 items-center rounded-lg border bg-muted px-3 text-sm text-muted-foreground">{personalSpace.label}</p>
+            </FormField>
+          ) : (
+            <FormField name="subjectId" label="Mata uji">
+              <NativeSelect id="subjectId" name="subjectId" defaultValue={defaults?.subjectId ?? subjects[0]?.id}>
+                {subjects.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </NativeSelect>
+            </FormField>
+          )}
           <FormField name="categoryId" label="Kategori" hint="Dikelola Admin di menu Kategori Ujian.">
             <NativeSelect id="categoryId" name="categoryId" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
               {categories.map((c) => (
@@ -119,6 +132,7 @@ export function ExamForm({
             id="workType"
             name="workType"
             value={workType}
+            disabled={!!personalSpace}
             onChange={(e) => {
               setWorkType(e.target.value)
               if (!editing) setUntimed(e.target.value !== "QUIZ")
@@ -128,6 +142,7 @@ export function ExamForm({
             <option value="QUESTION">{WORK_TYPE_LABEL.QUESTION} — satu soal singkat untuk kelas</option>
             <option value="ASSIGNMENT">{WORK_TYPE_LABEL.ASSIGNMENT} — instruksi + unggah berkas/jawaban, dinilai manual</option>
           </NativeSelect>
+          {personalSpace && <input type="hidden" name="workType" value={workType} />}
         </FormField>
         {assignment && (
           <FormField name="maxPoints" label="Poin maksimal" hint="Mahasiswa menulis jawaban dan/atau mengunggah berkas; Anda memberi poin 0–maks. Tanpa durasi, satu kali pengiriman.">
@@ -187,6 +202,12 @@ export function ExamForm({
       </Section>
 
       <Section icon={Users} title="Peserta" hint="Siapa yang dapat melihat & mengerjakan ujian ini.">
+        {personalSpace ? (
+          <p className="rounded-xl border border-dashed p-3 text-sm text-muted-foreground">
+            Ditujukan ke kelas asalnya ({personalSpace.label}). Untuk kelas lain, gunakan “Gunakan kembali” atau pilih beberapa kelas saat membuat postingan.
+          </p>
+        ) : (
+          <>
         <label className="flex items-start gap-2.5 text-sm">
           <input type="checkbox" name="openToAll" checked={openToAll} onChange={(e) => setOpenToAll(e.target.checked)} className="mt-0.5 size-4 accent-primary" />
           <span>
@@ -208,6 +229,8 @@ export function ExamForm({
               ))}
             </div>
           ))}
+          </>
+        )}
       </Section>
 
       <Section

@@ -2,7 +2,7 @@ import Link from "next/link"
 import { CalendarClock, ChevronRight, Clock, FileQuestion, ShieldCheck } from "lucide-react"
 import type { participantExams } from "@/lib/data/participant"
 import { formatDateTime } from "@/lib/format"
-import { examLabel, WORK_TYPE_LABEL } from "@/lib/labels"
+import { examLabel, subjectLabel, WORK_TYPE_LABEL } from "@/lib/labels"
 import { cn } from "@/lib/utils"
 
 type Item = Awaited<ReturnType<typeof participantExams>>[number]
@@ -24,7 +24,7 @@ export function ParticipantExamCard({ exam }: { exam: Item }) {
         <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary text-xs font-bold text-primary-foreground">{examLabel(exam)}</span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs text-muted-foreground">
-            {exam.subject.code} · {exam.subject.name}
+            {subjectLabel(exam.subject)}
           </p>
           <h3 className="leading-snug font-semibold group-hover:text-primary">{exam.title}</h3>
         </div>

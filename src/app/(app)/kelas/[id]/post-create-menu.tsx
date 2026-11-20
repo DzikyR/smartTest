@@ -12,6 +12,8 @@ import { createPost, reusePost } from "../material-actions"
 import { PostFields, type QuizOption, type Topic } from "./material-fields"
 import { KIND_ICON, TypeIcon } from "./post-icon"
 
+export type TargetClass = { id: string; name: string; term: string | null }
+
 export type ReuseSource = { id: string; name: string; term: string | null; archived: boolean; posts: { id: string; title: string; kind: PostKindValue; topic: string | null; attachments: number }[] }
 
 const MENU: { kind: PostKindValue; hint: string }[] = [
@@ -22,17 +24,18 @@ const MENU: { kind: PostKindValue; hint: string }[] = [
 ]
 
 const DIALOG_DESC: Record<PostKindValue, string> = {
-  TUGAS: "Pengumpulan, penilaian, dan Rekap memakai mesin Tugas SmartTest.",
+  TUGAS: "Pengumpulan, penilaian, dan Rekap memakai mesin Tugas SmartTest. Tidak perlu mata uji.",
   TUGAS_KUIS: "Ujian CBT tertaut akan ditujukan ke kelas ini.",
   PERTANYAAN: "Satu soal untuk diskusi atau presensi kelas.",
   MATERI: "Gabungkan banyak berkas dan tautan dalam satu postingan.",
 }
 
 /**
- * Tombol "+ Buat" ala Google Classroom. `workBlocked` berisi alasan bila
- * Tugas/Pertanyaan tidak bisa dibuat (mis. kelas belum punya mata uji).
+ * Tombol "+ Buat" ala Google Classroom. Tugas/Pertanyaan selalu bisa dibuat
+ * (disimpan di ruang ajar pembuat). `otherClasses` = kelas lain yang dikelola,
+ * untuk memposting salinan ke beberapa kelas sekaligus.
  */
-export function PostCreateMenu({ groupId, topics, quizzes, sources, workBlocked }: { groupId: string; topics: Topic[]; quizzes: QuizOption[]; sources: ReuseSource[]; workBlocked: string | null }) {
+export function PostCreateMenu({ groupId, topics, quizzes, sources, otherClasses }: { groupId: string; topics: Topic[]; quizzes: QuizOption[]; sources: ReuseSource[]; otherClasses: TargetClass[] }) {
   const [open, setOpen] = useState<PostKindValue | "REUSE" | null>(null)
   const close = (next: boolean) => !next && setOpen(null)
 
@@ -49,13 +52,12 @@ export function PostCreateMenu({ groupId, topics, quizzes, sources, workBlocked 
         <DropdownMenuContent align="end" className="w-72">
           {MENU.map(({ kind, hint }) => {
             const Icon = KIND_ICON[kind]
-            const blocked = (kind === "TUGAS" || kind === "PERTANYAAN") && workBlocked
             return (
-              <DropdownMenuItem key={kind} disabled={!!blocked} onClick={() => setOpen(kind)} className="items-start gap-3 py-2">
+              <DropdownMenuItem key={kind} onClick={() => setOpen(kind)} className="items-start gap-3 py-2">
                 <Icon className="mt-0.5 size-4" aria-hidden />
                 <span className="min-w-0">
                   <span className="block font-medium">{POST_KIND_LABEL[kind]}</span>
-                  <span className="block text-xs whitespace-normal text-muted-foreground">{blocked || hint}</span>
+                  <span className="block text-xs whitespace-normal text-muted-foreground">{hint}</span>
                 </span>
               </DropdownMenuItem>
             )
@@ -83,6 +85,7 @@ export function PostCreateMenu({ groupId, topics, quizzes, sources, workBlocked 
           wide
         >
           <PostFields kind={kind} topics={topics} quizzes={quizzes} />
+          <TargetClassesField classes={otherClasses} />
         </FormDialog>
       ))}
 
@@ -98,6 +101,28 @@ export function PostCreateMenu({ groupId, topics, quizzes, sources, workBlocked 
         <ReuseFields sources={sources} />
       </FormDialog>
     </>
+  )
+}
+
+/** Posting ke beberapa kelas: kelas ini selalu termasuk; tiap kelas mendapat salinan sendiri. */
+function TargetClassesField({ classes }: { classes: TargetClass[] }) {
+  if (!classes.length) return null
+  return (
+    <fieldset className="flex flex-col gap-1">
+      <legend className="mb-1 text-sm font-medium">Posting juga ke kelas lain</legend>
+      <p className="mb-1.5 text-xs text-muted-foreground">
+        Kelas ini selalu termasuk. Setiap kelas mendapat salinan sendiri: pengumpulan, nilai, dan tenggatnya terpisah. Lampiran tidak diunggah ulang.
+      </p>
+      <div className="grid max-h-40 gap-1 overflow-y-auto rounded-xl border p-2 sm:grid-cols-2">
+        {classes.map((c) => (
+          <label key={c.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-muted">
+            <input type="checkbox" name="targetGroupId" value={c.id} className="size-4 accent-primary" />
+            <span className="flex-1 truncate">{[c.name, c.term].filter(Boolean).join(" · ")}</span>
+          </label>
+        ))}
+      </div>
+      <FieldError name="targetGroupId" />
+    </fieldset>
   )
 }
 

@@ -208,7 +208,7 @@ async function TeacherView({ user, cls, tab }: { user: CurrentUser; cls: Managed
         ]}
       />
       {tab === "tugas" && <TeacherWork groupId={cls.id} />}
-      {tab === "materi" && <TeacherMaterials user={user} groupId={cls.id} subjectId={cls.subjectId} />}
+      {tab === "materi" && <TeacherMaterials user={user} groupId={cls.id} />}
       {tab === "nilai" && <TeacherGradebook groupId={cls.id} canExport={await isFeatureEnabled("ujian-kelola.ekspor", user.role)} />}
       {tab === "anggota" && <TeacherMembers groupId={cls.id} />}
       {tab === "pengaturan" && (

@@ -7,6 +7,7 @@ import { ACTIVE_STUDENT, targetableClasses } from "@/lib/classes/access"
 import { requireRole } from "@/lib/auth/dal"
 import { STAFF } from "@/lib/auth/roles"
 import { getManagedExam, listManagedSubjects } from "@/lib/data/access"
+import { subjectLabel } from "@/lib/labels"
 import { PageHeader } from "@/components/shell/page-parts"
 import { buttonVariants } from "@/components/ui/button"
 import { updateExam } from "../../actions"
@@ -45,6 +46,7 @@ export default async function EditExamPage({ params }: PageProps<"/ujian-kelola/
         groups={groups.map((g) => ({ id: g.id, name: g.name, members: g._count.members }))}
         defaults={{ ...exam, groupIds: exam.groups.map((g) => g.group.id) }}
         categories={categories}
+        personalSpace={exam.subject.isPersonalSpace ? { label: subjectLabel(exam.subject, exam.groups.map((g) => g.group.name)) } : undefined}
       />
     </div>
   )

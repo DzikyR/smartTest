@@ -4,7 +4,7 @@ import { db } from "@/lib/db"
 import type { CurrentUser } from "@/lib/auth/dal"
 import { examWindow, type getParticipantExam } from "@/lib/data/access"
 import { formatDateTime } from "@/lib/format"
-import { examLabel } from "@/lib/labels"
+import { examLabel, subjectLabel } from "@/lib/labels"
 import { round2 } from "@/lib/exam/grading"
 import { safeHref } from "@/lib/safe-url"
 import { cn } from "@/lib/utils"
@@ -47,7 +47,7 @@ export async function AssignmentView({ user, exam }: { user: CurrentUser; exam: 
       </Link>
       <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary to-primary-deep p-6 text-primary-foreground">
         <p className="flex items-center gap-1.5 text-sm text-primary-foreground/80">
-          <ClipboardList className="size-4" aria-hidden /> Tugas · {examLabel(exam)} · {exam.subject.code} {exam.subject.name}
+          <ClipboardList className="size-4" aria-hidden /> Tugas · {examLabel(exam)} · {subjectLabel(exam.subject)}
         </p>
         <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">{exam.title}</h1>
         <div className="mt-4 flex flex-wrap gap-2 text-sm">

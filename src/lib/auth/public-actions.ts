@@ -12,6 +12,7 @@ import { HOME, safeCallbackUrl } from "@/lib/auth/roles"
 import { findValidResetToken, issueResetToken, sendResetEmail } from "@/lib/auth/account"
 import { getAuthSettings } from "@/lib/site/config"
 import { clientIp, rateLimit } from "@/lib/rate-limit"
+import { hitIpLimit } from "@/lib/network/trusted"
 import { hashPassword, passwordPolicyError } from "@/lib/password"
 import { fail, formObject, ok, prismaCode, zodFieldErrors, type ActionResult } from "@/lib/action-result"
 
@@ -45,7 +46,7 @@ export async function registerAction(_prev: ActionResult, formData: FormData): P
   if (Object.keys(errors).length) return fail("Periksa kembali isian yang ditandai.", errors)
 
   const ip = clientIp(await headers())
-  if (!rateLimit(`register:${ip}`, 5, 60 * 60 * 1000).ok) return fail("Terlalu banyak pendaftaran dari jaringan Anda. Coba lagi nanti.")
+  if (!(await hitIpLimit(ip, "register"))) return fail("Terlalu banyak pendaftaran dari jaringan Anda. Coba lagi nanti.")
 
   try {
     const user = await db.user.create({ data: { name, email: parsed.data.email, role: "PESERTA", passwordHash: await hashPassword(password) }, select: { id: true } })
@@ -68,7 +69,7 @@ export async function requestPasswordReset(_prev: ActionResult, formData: FormDa
   const parsed = email.safeParse(String(formData.get("email") ?? "").trim())
   if (!parsed.success) return fail("Masukkan email yang valid.", { email: "Email tidak valid" })
   const ip = clientIp(await headers())
-  if (!rateLimit(`reset:ip:${ip}`, 5, 15 * 60 * 1000).ok || !rateLimit(`reset:email:${parsed.data}`, 3, 60 * 60 * 1000).ok)
+  if (!(await hitIpLimit(ip, "resetRequest")) || !rateLimit(`reset:email:${parsed.data}`, 3, 60 * 60 * 1000).ok)
     return fail("Terlalu banyak permintaan. Coba lagi beberapa saat lagi.")
 
   const user = await db.user.findUnique({ where: { email: parsed.data }, select: { id: true, name: true, email: true, isActive: true } })
@@ -84,7 +85,7 @@ export async function requestPasswordReset(_prev: ActionResult, formData: FormDa
 
 export async function resetPasswordWithToken(token: string, _prev: ActionResult, formData: FormData): Promise<ActionResult> {
   const ip = clientIp(await headers())
-  if (!rateLimit(`reset:submit:${ip}`, 10, 15 * 60 * 1000).ok) return fail("Terlalu banyak percobaan. Coba lagi beberapa saat lagi.")
+  if (!(await hitIpLimit(ip, "resetSubmit"))) return fail("Terlalu banyak percobaan. Coba lagi beberapa saat lagi.")
   const row = await findValidResetToken(token)
   if (!row) return fail("Tautan reset tidak valid atau sudah kedaluwarsa. Minta tautan baru.")
 

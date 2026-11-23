@@ -8,6 +8,7 @@ const { ipAllowed, parseIpList, sebKeyHash, sebHashValid } = await import(src("e
 const { examRules, parseCustomRules, customRulesError } = await import(src("exam/rules.ts"))
 const { autoGradeQuiz, quizPercent } = await import(src("exam/grading.ts"))
 const { reopenedStartedAt } = await import(src("exam/reopen.ts"))
+const cidr = await import(src("network/cidr.ts"))
 
 let pass = 0, fail = 0
 const check = (n: string, ok: boolean, x: unknown = "") => { ok ? pass++ : fail++; console.log(`${ok ? "PASS" : "FAIL"}  ${n}${!ok ? "  — " + JSON.stringify(x) : ""}`) }
@@ -239,6 +240,16 @@ tampered[20] ^= 1
 check("Paket soal: kunci ujian lain / isi diubah → gagal dibuka (GCM)", mthrows(() => pkgm.openPackage(msealed.blob, pkgm.packageKey(PKG_KEY, "ex2", msealed.version))) && mthrows(() => pkgm.openPackage(tampered, msealed.key)))
 const withKey = pkgm.sealPackage("ex1", [{ ...pq[0], answerKey: { optionId: "a" } }], PKG_KEY)
 check("Paket soal: field di luar daftar (mis. kunci jawaban) tidak ikut", !JSON.stringify(pkgm.openPackage(withKey.blob, withKey.key)).includes("answerKey"))
+
+// ---- Jaringan kampus tepercaya: IP/CIDR & kunci rate limit ----
+const nl = cidr.parseNetworkList("114.141.59.182  # gedung A\n114.141.60.7/24, 2001:db8:10::/48\n114.141.59.182\n10.0.0.300\n1.2.3.4/33\nhalo")
+check("Daftar jaringan: dibakukan, duplikat dibuang, komentar diabaikan, entri salah dilaporkan", nl.networks.join() === "114.141.59.182/32,114.141.60.0/24,2001:db8:10::/48" && nl.invalid.join() === "10.0.0.300,1.2.3.4/33,halo", nl)
+const nets = nl.networks.map((n: string) => cidr.parseNetwork(n))
+check("IPv4 di dalam/luar jaringan", cidr.ipInNetworks("114.141.60.250", nets) && cidr.ipInNetworks("114.141.59.182", nets) && !cidr.ipInNetworks("114.141.59.183", nets) && !cidr.ipInNetworks("114.141.61.1", nets))
+check("IPv4 lewat soket IPv6 (::ffff:) dikenali", cidr.ipInNetworks("::ffff:114.141.59.182", nets) && cidr.ipKey("::ffff:114.141.59.182") === "114.141.59.182")
+check("IPv6 di dalam/luar /48", cidr.ipInNetworks("2001:db8:10:ab::1", nets) && !cidr.ipInNetworks("2001:db8:11::1", nets) && !cidr.ipInNetworks("unknown", nets))
+check("Kunci rate limit: IPv4 per alamat, IPv6 per /64", cidr.ipKey("1.2.3.4") === "1.2.3.4" && cidr.ipKey("2001:db8:1:2:aaaa::1") === cidr.ipKey("2001:db8:1:2:ffff:ffff:ffff:ffff") && cidr.ipKey("2001:db8:1:2::1") === "2001:db8:1:2::/64" && cidr.ipKey("2001:db8:1:3::1") !== cidr.ipKey("2001:db8:1:2::1") && cidr.ipKey("unknown") === "unknown")
+check("CIDR: /0 & tulisan baku IPv6", cidr.parseNetwork("0.0.0.0/0")?.prefix === 0 && cidr.formatNetwork(cidr.parseNetwork("2001:DB8:0:0:1::1")) === "2001:db8::1:0:0:1/128" && cidr.parseNetwork("1.2.3.4/") === null)
 
 console.log(`\n${pass} lulus, ${fail} gagal`)
 if (fail) process.exit(1)

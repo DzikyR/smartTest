@@ -34,7 +34,7 @@ import { requireRole } from "@/lib/auth/dal"
 import { enabledFeatures } from "@/lib/features/access"
 import type { FeatureKey } from "@/lib/features/registry"
 import { STAFF } from "@/lib/auth/roles"
-import { getManagedExam } from "@/lib/data/access"
+import { getManagedExam, personalSpaceId } from "@/lib/data/access"
 import { DISTRIBUTION_BUCKETS, loadExamReport } from "@/lib/data/exam-report"
 import { formatDateTime, formatTime } from "@/lib/format"
 import { examLabel, QUESTION_TYPE_LABEL, SUBJECT_TYPE_LABEL, subjectLabel } from "@/lib/labels"
@@ -171,7 +171,7 @@ export default async function ExamDetailPage({ params, searchParams }: PageProps
       />
 
       {tab === "ringkasan" && <SummaryTab exam={exam} questions={questions.length} report={report} />}
-      {tab === "soal" && <QuestionsTab exam={exam} questions={questions} locked={locked} totalPoints={totalPoints} features={features} />}
+      {tab === "soal" && <QuestionsTab exam={exam} questions={questions} locked={locked} totalPoints={totalPoints} features={features} userId={user.id} />}
       {tab === "peserta" && <ParticipantsTab exam={exam} report={report} />}
       {tab === "sesi" && exam.workType !== "ASSIGNMENT" && <SessionsTab examId={exam.id} canManage={features.includes("sesi.kelola")} />}
       {tab === "hasil" && <ResultsTab exam={exam} report={report} canExport={features.includes("ujian-kelola.ekspor")} />}
@@ -328,18 +328,23 @@ async function QuestionsTab({
   locked,
   totalPoints,
   features,
+  userId,
 }: {
   exam: Exam
   questions: Awaited<ReturnType<typeof db.examQuestion.findMany>>
   locked: boolean
   totalPoints: number
   features: FeatureKey[]
+  userId: string
 }) {
-  const bank = await db.question.findMany({
-    where: { subjectId: exam.subjectId },
-    orderBy: [{ topic: "asc" }, { createdAt: "asc" }],
-    select: { id: true, type: true, prompt: true, points: true, topic: true, difficulty: true },
-  })
+  // Bank mata uji (hanya ujian resmi) + Bank soal saya (ruang ajar MILIK PENGGUNA, bukan milik pembuat ujian).
+  const bankSelect = { id: true, type: true, prompt: true, points: true, topic: true, difficulty: true } as const
+  const bankOrder = [{ topic: "asc" as const }, { createdAt: "asc" as const }]
+  const mySpace = await personalSpaceId(userId)
+  const [bank, myBank] = await Promise.all([
+    exam.subject.isPersonalSpace ? [] : db.question.findMany({ where: { subjectId: exam.subjectId }, orderBy: bankOrder, select: bankSelect }),
+    mySpace ? db.question.findMany({ where: { subjectId: mySpace }, orderBy: bankOrder, select: bankSelect }) : [],
+  ])
   if (exam.workType === "ASSIGNMENT") {
     const attachments = await db.examAttachment.findMany({ where: { examId: exam.id }, orderBy: { createdAt: "asc" }, select: { id: true, fileName: true, size: true } })
     return (
@@ -357,7 +362,9 @@ async function QuestionsTab({
     )
   }
   const used = new Set(questions.map((q) => q.sourceId).filter(Boolean))
-  const topics = [...new Set(bank.map((b) => b.topic).filter((t): t is string => !!t))]
+  const topicsOf = (list: typeof bank) => [...new Set(list.map((b) => b.topic).filter((t): t is string => !!t))]
+  // Pertanyaan = tepat satu soal: tombol ambil dari bank hanya aktif selama masih kosong.
+  const full = exam.workType === "QUESTION" && questions.length >= 1
 
   return (
     <div className="flex flex-col gap-4">
@@ -367,19 +374,40 @@ async function QuestionsTab({
         </p>
         {!locked && (
           <div className="flex flex-wrap gap-2">
+            {!exam.subject.isPersonalSpace && (
+              <FormDialog
+                title="Ambil dari Bank Soal"
+                description={`${bank.length} soal tersedia di bank ${exam.subject.code}.`}
+                action={addFromBank.bind(null, exam.id, "subject")}
+                submitLabel="Tambahkan"
+                wide
+                trigger={
+                  <Button className="rounded-xl" disabled={bank.length === 0} title={bank.length === 0 ? "Bank soal mata uji ini masih kosong" : undefined}>
+                    <Library aria-hidden /> Dari bank soal
+                  </Button>
+                }
+              >
+                <BankPickerFields items={bank.map((b) => ({ ...b, used: used.has(b.id) }))} topics={topicsOf(bank)} />
+              </FormDialog>
+            )}
             <FormDialog
-              title="Ambil dari Bank Soal"
-              description={`${bank.length} soal tersedia di bank ${exam.subject.code}.`}
-              action={addFromBank.bind(null, exam.id)}
+              title="Ambil dari Bank soal saya"
+              description={`${myBank.length} soal di bank pribadi Anda.${exam.workType === "QUESTION" ? " Pertanyaan berisi tepat satu soal." : ""}`}
+              action={addFromBank.bind(null, exam.id, "mine")}
               submitLabel="Tambahkan"
               wide
               trigger={
-                <Button className="rounded-xl" disabled={bank.length === 0} title={bank.length === 0 ? "Bank soal mata uji ini masih kosong" : undefined}>
-                  <Library aria-hidden /> Dari bank soal
+                <Button
+                  variant={exam.subject.isPersonalSpace ? "default" : "outline"}
+                  className="rounded-xl"
+                  disabled={myBank.length === 0 || full}
+                  title={full ? "Pertanyaan sudah berisi satu soal" : myBank.length === 0 ? "Bank soal saya masih kosong — isi lewat menu Bank Soal" : undefined}
+                >
+                  <Library aria-hidden /> Dari Bank soal saya
                 </Button>
               }
             >
-              <BankPickerFields items={bank.map((b) => ({ ...b, used: used.has(b.id) }))} topics={topics} />
+              <BankPickerFields items={myBank.map((b) => ({ ...b, used: used.has(b.id) }))} topics={topicsOf(myBank)} />
             </FormDialog>
             {features.includes("bank-soal.massal") && !exam.subject.isPersonalSpace && (
               <Link href={`/bank-soal/massal?exam=${exam.id}`} className={buttonVariants({ variant: "outline", className: "rounded-xl" })}>

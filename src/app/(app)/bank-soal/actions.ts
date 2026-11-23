@@ -8,7 +8,7 @@ import { requireRole } from "@/lib/auth/dal"
 import { isFeatureEnabled } from "@/lib/features/access"
 import { FEATURE_DISABLED } from "@/lib/features/registry"
 import { STAFF } from "@/lib/auth/roles"
-import { canManageSubject, getManagedQuestion } from "@/lib/data/access"
+import { bankSubjects, canManageBank, getManagedQuestion, resolveBankSubject } from "@/lib/data/access"
 import { appendExamQuestions, editableExam } from "@/lib/data/exam-questions"
 import { fail, ok, type ActionResult } from "@/lib/action-result"
 import { parseBankForm } from "@/lib/exam/question-input"
@@ -37,8 +37,9 @@ const toCreate = (q: ImportedQuestion, subjectId: string, createdById: string) =
 })
 
 /** Simpan soal ke bank (dan opsional langsung ke sebuah ujian). */
-async function persist(user: Awaited<ReturnType<typeof requireRole>>, subjectId: string, questions: ImportedQuestion[], examId: string | null) {
-  if (!(await canManageSubject(user, subjectId))) return fail(DENIED)
+async function persist(user: Awaited<ReturnType<typeof requireRole>>, bank: string, questions: ImportedQuestion[], examId: string | null) {
+  const subjectId = await resolveBankSubject(user, bank)
+  if (!(await canManageBank(user, subjectId))) return fail(DENIED)
   const full = await bankFull(subjectId, questions.length)
   if (full) return full
   if (examId) {
@@ -61,11 +62,12 @@ async function persist(user: Awaited<ReturnType<typeof requireRole>>, subjectId:
 // Satu soal
 // ---------------------------------------------------------------------------
 
-export async function createQuestion(subjectId: string, _prev: ActionResult, formData: FormData) {
+export async function createQuestion(bank: string, _prev: ActionResult, formData: FormData) {
   const user = await requireRole(...STAFF)
-  if (!(await canManageSubject(user, subjectId))) return fail(DENIED)
   const { data, error } = parseBankForm(formData)
   if (error) return error
+  const subjectId = await resolveBankSubject(user, bank)
+  if (!(await canManageBank(user, subjectId))) return fail(DENIED)
   const full = await bankFull(subjectId, 1)
   if (full) return full
   await db.question.create({ data: { ...data, subjectId, createdById: user.id } })
@@ -87,7 +89,7 @@ export async function updateQuestion(id: string, _prev: ActionResult, formData: 
 export async function deleteQuestions(ids: string[]): Promise<ActionResult> {
   const user = await requireRole(...STAFF)
   const list = [...new Set(ids)].slice(0, 500)
-  const owned = await db.question.findMany({ where: { id: { in: list }, subject: user.role === "DOSEN" ? { lecturers: { some: { userId: user.id } } } : {} }, select: { id: true } })
+  const owned = await db.question.findMany({ where: { id: { in: list }, subject: bankSubjects(user) }, select: { id: true } })
   if (owned.length === 0) return fail("Tidak ada soal yang dapat dihapus.")
   await db.question.deleteMany({ where: { id: { in: owned.map((q) => q.id) } } })
   await audit("QUESTIONS_DELETED", { userId: user.id, entity: "Question", metadata: { count: owned.length } })
@@ -121,6 +123,7 @@ export async function saveBulk(
       Object.fromEntries(Object.entries(errors).map(([i, m]) => [`q${i}`, m]))
     )
   }
+  subjectId = await resolveBankSubject(user, subjectId) // "saya" → id ruang ajar (untuk audit)
   const err = await persist(user, subjectId, questions, examId)
   if (err) return err
   await audit("QUESTIONS_BULK_CREATED", { userId: user.id, entity: "Subject", entityId: subjectId, metadata: { count: questions.length, examId } })
@@ -167,6 +170,7 @@ export async function saveImported(subjectId: string, examId: string | null, ite
     if (!r.question) return fail(`Soal ${i + 1}: ${r.error}.`)
     questions.push(r.question)
   }
+  subjectId = await resolveBankSubject(user, subjectId) // "saya" → id ruang ajar (untuk audit)
   const err = await persist(user, subjectId, questions, examId)
   if (err) return err
   await audit("QUESTIONS_IMPORTED", { userId: user.id, entity: "Subject", entityId: subjectId, metadata: { count: questions.length, examId } })

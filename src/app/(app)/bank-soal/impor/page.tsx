@@ -4,8 +4,8 @@ import { ArrowLeft } from "lucide-react"
 import { db } from "@/lib/db"
 import { requireFeature } from "@/lib/features/access"
 import { STAFF } from "@/lib/auth/roles"
-import { listManagedSubjects, managedSubjects } from "@/lib/data/access"
-import { EmptyState, PageHeader, str } from "@/components/shell/page-parts"
+import { listManagedSubjects, managedSubjects, MY_BANK } from "@/lib/data/access"
+import { PageHeader, str } from "@/components/shell/page-parts"
 import { buttonVariants } from "@/components/ui/button"
 import { ImportWizard } from "./import-wizard"
 
@@ -14,8 +14,8 @@ export const metadata: Metadata = { title: "Impor Soal" }
 export default async function ImportPage({ searchParams }: PageProps<"/bank-soal/impor">) {
   const user = await requireFeature("bank-soal.impor", ...STAFF)
   const sp = await searchParams
-  const subjects = await listManagedSubjects(user)
-  if (subjects.length === 0) return <EmptyState title="Belum ada mata uji yang Anda kelola" />
+  // "Bank soal saya" selalu tersedia (juga untuk dosen tanpa mata uji); ujian tujuan hanya dari mata uji resmi.
+  const subjects = [...(await listManagedSubjects(user)), { id: MY_BANK, code: "★", name: "Bank soal saya (pribadi)" }]
   const subject = subjects.find((s) => s.id === str(sp.subject)) ?? subjects[0]
   const exams = await db.exam.findMany({
     where: { subject: managedSubjects(user), attempts: { none: { status: { not: "IN_PROGRESS" } } } },

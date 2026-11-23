@@ -72,8 +72,35 @@ export async function ensurePersonalSpace(user: Pick<CurrentUser, "id" | "name">
   }
 }
 
+// ---------------------------------------------------------------------------
+// Bank soal: mata uji resmi yang dikelola + "Bank soal saya" (soal di ruang ajar MILIK SENDIRI).
+// Bank pribadi hanya untuk pemiliknya — juga tidak terlihat oleh Admin atau co-teacher.
+// ---------------------------------------------------------------------------
+
+/** Nilai `subject` di URL/form untuk "Bank soal saya" (ruang ajar dibuat saat pertama diisi). */
+export const MY_BANK = "saya"
+
+/** Filter mata uji yang bank soalnya boleh dikelola pengguna. */
+export function bankSubjects(user: CurrentUser): Prisma.SubjectWhereInput {
+  return { OR: [managedSubjects(user), { isPersonalSpace: true, ownerId: user.id }] }
+}
+
+export async function canManageBank(user: CurrentUser, subjectId: string) {
+  return (await db.subject.count({ where: { AND: [{ id: subjectId }, bankSubjects(user)] } })) > 0
+}
+
+/** Id ruang ajar pengguna tanpa membuatnya (null = bank soal saya masih kosong). */
+export async function personalSpaceId(userId: string) {
+  return (await db.subject.findUnique({ where: { ownerId: userId }, select: { id: true } }))?.id ?? null
+}
+
+/** `MY_BANK` → id ruang ajar pengguna (dibuat bila belum ada); id lain dikembalikan apa adanya. */
+export async function resolveBankSubject(user: Pick<CurrentUser, "id" | "name">, subjectId: string) {
+  return subjectId === MY_BANK ? ensurePersonalSpace(user) : subjectId
+}
+
 export async function getManagedQuestion(user: CurrentUser, id: string) {
-  return db.question.findFirst({ where: { id, subject: managedSubjects(user) }, select: { id: true, subjectId: true } })
+  return db.question.findFirst({ where: { id, subject: bankSubjects(user) }, select: { id: true, subjectId: true } })
 }
 
 export async function getManagedExam(user: CurrentUser, examId: string) {

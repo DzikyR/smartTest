@@ -6,7 +6,7 @@ import { db } from "@/lib/db"
 import { requireRole } from "@/lib/auth/dal"
 import { enabledFeatures } from "@/lib/features/access"
 import { STAFF } from "@/lib/auth/roles"
-import { listManagedSubjects } from "@/lib/data/access"
+import { listManagedSubjects, MY_BANK, personalSpaceId } from "@/lib/data/access"
 import { DIFFICULTY_LABEL, QUESTION_TYPE_LABEL, QUESTION_TYPE_SHORT, SUBJECT_TYPE_LABEL } from "@/lib/labels"
 import { QUESTION_TYPES } from "@/lib/exam/question-input"
 import { cn } from "@/lib/utils"
@@ -35,17 +35,14 @@ export default async function QuestionBankPage({ searchParams }: PageProps<"/ban
   const user = await requireRole(...STAFF)
   const features = await enabledFeatures(user.role)
   const sp = await searchParams
-  const subjects = await listManagedSubjects(user)
-  const subject = subjects.find((s) => s.id === str(sp.subject)) ?? subjects[0]
-
-  if (!subject) {
-    return (
-      <div className="flex flex-col gap-6">
-        <PageHeader title="Bank Soal" />
-        <EmptyState title="Belum ada mata uji" description="Bank soal dikelola per mata uji. Buat mata uji terlebih dahulu." action={<Link href="/mata-uji" className={buttonVariants({ className: "rounded-xl" })}>Buat mata uji</Link>} />
-      </div>
-    )
-  }
+  const official = await listManagedSubjects(user)
+  // "Bank soal saya" (ruang ajar pengguna) selalu tersedia — juga untuk dosen tanpa mata uji.
+  const mine = { id: MY_BANK, code: "", name: "Bank soal saya", type: null }
+  const subjects = [...official, mine]
+  const subject = subjects.find((s) => s.id === str(sp.subject)) ?? official[0] ?? mine
+  const isMine = subject.id === MY_BANK
+  // Id bank di database: untuk "Bank soal saya" = ruang ajar (bisa belum ada → bank kosong).
+  const bankId = isMine ? ((await personalSpaceId(user.id)) ?? "__belum_ada__") : subject.id
 
   const q = str(sp.q)
   const topic = str(sp.topic)
@@ -53,7 +50,7 @@ export default async function QuestionBankPage({ searchParams }: PageProps<"/ban
   const difficulty = [1, 2, 3].find((d) => String(d) === str(sp.difficulty))
   const page = parsePage(sp.page)
   const where: Prisma.QuestionWhereInput = {
-    subjectId: subject.id,
+    subjectId: bankId,
     ...(topic ? { topic } : {}),
     ...(type ? { type } : {}),
     ...(difficulty ? { difficulty } : {}),
@@ -61,8 +58,8 @@ export default async function QuestionBankPage({ searchParams }: PageProps<"/ban
   }
 
   const [topics, byType, total, items] = await Promise.all([
-    db.question.groupBy({ by: ["topic"], where: { subjectId: subject.id, topic: { not: null } }, _count: true, orderBy: { topic: "asc" } }),
-    db.question.groupBy({ by: ["type"], where: { subjectId: subject.id }, _count: true }),
+    db.question.groupBy({ by: ["topic"], where: { subjectId: bankId, topic: { not: null } }, _count: true, orderBy: { topic: "asc" } }),
+    db.question.groupBy({ by: ["type"], where: { subjectId: bankId }, _count: true }),
     db.question.count({ where }),
     db.question.findMany({
       where,
@@ -79,7 +76,11 @@ export default async function QuestionBankPage({ searchParams }: PageProps<"/ban
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Bank Soal"
-        description="Kumpulan soal per mata uji — dipakai ulang untuk kuis, UTS, UAS, dan tes umum. Soal disalin saat dimasukkan ke ujian."
+        description={
+          isMine
+            ? "Koleksi soal pribadi Anda — tidak terlihat pengajar lain. Pakai untuk Pertanyaan di kelas mana pun atau ambil ke ujian lewat “Dari Bank soal saya”."
+            : "Kumpulan soal per mata uji — dipakai ulang untuk kuis, UTS, UAS, dan tes umum. Soal disalin saat dimasukkan ke ujian."
+        }
         actions={
           <>
             {features.includes("bank-soal.impor") && (
@@ -94,7 +95,7 @@ export default async function QuestionBankPage({ searchParams }: PageProps<"/ban
             )}
             <FormDialog
               title="Tambah Soal"
-              description={`${subject.code} · ${subject.name}`}
+              description={isMine ? "Bank soal saya" : `${subject.code} · ${subject.name}`}
               action={createQuestion.bind(null, subject.id)}
               wide
               trigger={
@@ -112,15 +113,16 @@ export default async function QuestionBankPage({ searchParams }: PageProps<"/ban
       <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
         <form action="/bank-soal" className="flex flex-col gap-1.5">
           <label htmlFor="subject" className="text-xs font-medium text-muted-foreground">
-            Mata uji
+            Bank
           </label>
           <div className="flex gap-2">
             <NativeSelect id="subject" name="subject" defaultValue={subject.id} className="h-10 rounded-xl bg-card sm:min-w-80">
-              {subjects.map((s) => (
+              {official.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.code} · {s.name} ({SUBJECT_TYPE_LABEL[s.type]})
                 </option>
               ))}
+              <option value={MY_BANK}>★ Bank soal saya (pribadi)</option>
             </NativeSelect>
             <Button type="submit" variant="secondary" className="h-10 rounded-xl">
               Buka

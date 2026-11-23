@@ -213,7 +213,7 @@ export async function StudentMaterials({ groupId, userId }: { groupId: string; u
 // ---------------------------------------------------------------------------
 
 export async function TeacherMaterials({ user, groupId }: { user: CurrentUser; groupId: string }) {
-  const [{ topics, materials }, students, quizzes, sourceClasses, otherClasses] = await Promise.all([
+  const [{ topics, materials }, students, quizzes, sourceClasses, otherClasses, myBank] = await Promise.all([
     loadMaterials(groupId),
     db.groupMember.count({ where: { groupId, ...ACTIVE_STUDENT } }),
     // Tugas Kuis yang bisa ditautkan: ujian CBT berjenis kuis yang dikelola & belum tertaut di kelas ini
@@ -242,6 +242,13 @@ export async function TeacherMaterials({ user, groupId }: { user: CurrentUser; g
       orderBy: { name: "asc" },
       take: 100,
       select: { id: true, name: true, term: true },
+    }),
+    // "Ambil dari Bank soal saya" untuk Pertanyaan: hanya ruang ajar MILIK pengguna
+    db.question.findMany({
+      where: { subject: { isPersonalSpace: true, ownerId: user.id } },
+      orderBy: { createdAt: "desc" },
+      take: 500,
+      select: { id: true, type: true, prompt: true, points: true, topic: true },
     }),
   ])
   const drafts = materials.filter((m) => m.status === "DRAFT").length
@@ -280,6 +287,7 @@ export async function TeacherMaterials({ user, groupId }: { user: CurrentUser; g
             quizzes={quizzes.map((q) => ({ id: q.id, title: q.title, published: !!q.publishedAt, questions: q._count.questions }))}
             sources={sources}
             otherClasses={otherClasses}
+            bank={myBank.map((q) => ({ ...q, prompt: q.prompt.slice(0, 300) }))}
           />
         </div>
       </div>

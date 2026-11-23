@@ -2,11 +2,11 @@ import "server-only"
 import bcrypt from "bcryptjs"
 import { z } from "zod"
 import { db } from "@/lib/db"
-import { rateLimit } from "@/lib/rate-limit"
+import { isRateLimited, rateLimit } from "@/lib/rate-limit"
 
 /**
  * Pemeriksaan email/NIM + password — satu-satunya pintu login (NextAuth di web &
- * POST /api/v1/mobile/auth/login). Rate limit per IP, kunci akun setelah 5× gagal,
+ * POST /api/v1/mobile/auth/login). Batas login gagal per IP, kunci akun setelah 5× gagal,
  * waktu respons sama untuk akun yang tidak ada (cegah user enumeration), audit log.
  */
 
@@ -22,6 +22,15 @@ export const credentialsSchema = z.object({
   password: z.string().min(1).max(128),
 })
 
+/**
+ * Batas per IP hanya menghitung login yang GAGAL. Satu lab/kampus sering keluar lewat satu IP (NAT),
+ * jadi kalau login berhasil ikut dihitung, mahasiswa ke-21 di ruang ujian ditolak. Penebakan password
+ * ke satu akun tetap dihentikan oleh kunci akun (MAX_FAILED_ATTEMPTS); batas ini menahan password
+ * spraying (banyak akun dari satu IP).
+ */
+const LOGIN_FAILS_PER_IP = 100
+const LOGIN_WINDOW_MS = 15 * 60 * 1000
+
 export type VerifiedUser = { id: string; name: string; email: string; role: "SUPER_ADMIN" | "ADMIN" | "DOSEN" | "PESERTA" }
 
 export type CredentialsResult = { ok: true; user: VerifiedUser } | { ok: false; reason: "invalid" | "locked" | "rate_limited" }
@@ -33,7 +42,9 @@ export async function verifyCredentials(raw: unknown, ctx: { ip: string; userAge
   const { password } = parsed.data
   const { ip, userAgent } = ctx
 
-  if (!rateLimit(`login:${ip}`, 20, 15 * 60 * 1000).ok) return { ok: false, reason: "rate_limited" }
+  const failKey = `login-fail:${ip}`
+  if (isRateLimited(failKey, LOGIN_FAILS_PER_IP)) return { ok: false, reason: "rate_limited" }
+  const countFailure = () => rateLimit(failKey, LOGIN_FAILS_PER_IP, LOGIN_WINDOW_MS)
 
   const user = await db.user.findFirst({
     where: identifier.includes("@") ? { email: identifier } : { username: { equals: identifier, mode: "insensitive" } },
@@ -44,9 +55,13 @@ export async function verifyCredentials(raw: unknown, ctx: { ip: string; userAge
     await db.auditLog.create({
       data: { action: "LOGIN_FAILED", severity: "WARNING", userId: user?.id, ipAddress: ip, userAgent, metadata: { identifier, reason: user ? "inactive" : "unknown" } },
     })
+    countFailure()
     return { ok: false, reason: "invalid" }
   }
-  if (user.lockedUntil && user.lockedUntil > new Date()) return { ok: false, reason: "locked" }
+  if (user.lockedUntil && user.lockedUntil > new Date()) {
+    countFailure()
+    return { ok: false, reason: "locked" }
+  }
 
   if (!(await bcrypt.compare(password, user.passwordHash))) {
     const failed = user.failedLoginCount + 1
@@ -58,6 +73,7 @@ export async function verifyCredentials(raw: unknown, ctx: { ip: string; userAge
       }),
       db.auditLog.create({ data: { action: lock ? "ACCOUNT_LOCKED" : "LOGIN_FAILED", severity: lock ? "CRITICAL" : "WARNING", userId: user.id, ipAddress: ip, userAgent } }),
     ])
+    countFailure()
     return { ok: false, reason: lock ? "locked" : "invalid" }
   }
 

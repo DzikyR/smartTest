@@ -286,6 +286,26 @@ function openPackage(blob, keyB64) {
     T.access = r.data.accessToken; T.refresh = r.data.refreshToken
     check("Akses dengan sesi baru lolos; token lama (sebelum ganti password) ditolak", (await T.call("GET", "/exams")).status === 200 && (await T.call("GET", "/me", undefined, { authorization: `Bearer ${oldAccess}` })).status === 401 && (await T.call("POST", "/auth/refresh", { refreshToken: oldRefresh })).status === 401)
 
+    // ---------- Batas login per IP (lab kampus di belakang satu IP NAT) ----------
+    const lab = { "x-forwarded-for": "203.0.113.10" }
+    const students = ["2401001", "2401002", "2401003", "2401004", "2401005", "2401006", "2401007", "2401008"]
+    let labOk = 0
+    for (let i = 0; i < 40; i++) {
+      const u = students[i % students.length]
+      const d = device(`lab${i}`)
+      const res = await d.call("POST", "/auth/login", { identifier: u, password: pw[u] }, lab)
+      if (res.status === 200) labOk++
+    }
+    check("40 login BERHASIL dari satu IP (satu lab) → semua diterima, tidak kena batas", labOk === 40, labOk)
+    const spray = { "x-forwarded-for": "203.0.113.66" }
+    let sprayCodes = new Set()
+    for (let i = 0; i < 100; i++) sprayCodes.add((await A.call("POST", "/auth/login", { identifier: `e2e-spray-${i}`, password: "tebakan123" }, spray)).status)
+    r = await A.call("POST", "/auth/login", { identifier: "2401002", password: pw["2401002"] }, spray)
+    check("100 login GAGAL dari satu IP → IP itu diblokir (429) meski password benar", sprayCodes.size === 1 && sprayCodes.has(401) && r.status === 429 && r.data.error === "RATE_LIMITED", [...sprayCodes, r.status])
+    r = await device("lain").call("POST", "/auth/login", { identifier: "2401002", password: pw["2401002"] }, { "x-forwarded-for": "203.0.113.67" })
+    check("IP lain tidak ikut terblokir", r.status === 200, r.status)
+    await pg.query(`delete from audit_logs where action='LOGIN_FAILED' and metadata->>'identifier' like 'e2e-spray-%'`)
+
     // ---------- Logout ----------
     r = await A.call("POST", "/auth/logout", { refreshToken: A.refresh })
     check("Logout → refresh token tidak berlaku, notifikasi perangkat dilepas", r.status === 200 && (await A.call("POST", "/auth/refresh", { refreshToken: A.refresh })).status === 401 && !!(await one(`select 1 from mobile_devices where "deviceId"=$1 and "fcmToken" is null`, [A.id])))

@@ -32,7 +32,7 @@ Kode error umum: `UNAUTHENTICATED` (401 → refresh lalu ulangi sekali), `PASSWO
 ### Akun
 | Method & path | Body → Respons |
 |---|---|
-| `POST /auth/login` | `{ identifier, password }` → `{ user:{id,name,email,username,role,mustChangePassword}, accessToken, refreshToken, expiresIn }`. Error: `INVALID_CREDENTIALS` 401, `ACCOUNT_LOCKED` 423, `RATE_LIMITED` 429, `DEVICE_REQUIRED` 400. Aturan sama dengan web (kunci 5× gagal, rate limit per IP). |
+| `POST /auth/login` | `{ identifier, password }` → `{ user:{id,name,email,username,role,mustChangePassword}, accessToken, refreshToken, expiresIn }`. Error: `INVALID_CREDENTIALS` 401, `ACCOUNT_LOCKED` 423, `RATE_LIMITED` 429, `DEVICE_REQUIRED` 400. Aturan sama dengan web: akun terkunci setelah 5× gagal; per IP hanya login **gagal** yang dihitung (100 per 15 menit), jadi satu lab di belakang satu IP NAT tetap bisa login bersamaan. |
 | `POST /auth/refresh` | `{ refreshToken }` → `{ accessToken, refreshToken, expiresIn }`. **Simpan refresh token baru** (rotasi). `SESSION_INVALID` 401 → ke layar login. Tanpa gerbang versi. |
 | `POST /auth/logout` | `{ refreshToken }` → `{ ok:true }`; notifikasi perangkat dilepas. |
 | `POST /auth/password` | `{ currentPassword, newPassword }` → token baru. Satu-satunya endpoint yang boleh saat `mustChangePassword`. Semua sesi lain (web & mobile) dicabut. |

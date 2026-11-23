@@ -307,3 +307,33 @@ export async function submitAttempt(ctx: MobileContext, attemptId: string, body:
     data: { duplicate: false, status: result.pendingEssay ? "SUBMITTED" : "GRADED", score: exam.showScore ? result.score : null, late: result.late, message },
   }
 }
+
+// ---------------------------------------------------------------------------
+// Kartu ujian (daftar Ujian Saya, dashboard, tab kelas) — sama dengan kartu di web
+// ---------------------------------------------------------------------------
+
+type ListedExam = Awaited<ReturnType<typeof import("@/lib/data/participant").participantExams>>[number]
+
+export function examCard(e: ListedExam) {
+  return {
+    id: e.id,
+    title: e.title,
+    kind: e.kind,
+    category: e.category?.name ?? null,
+    workType: e.workType,
+    subject: { code: e.subject.code, name: e.subject.name },
+    startAt: ms(e.startAt),
+    endAt: ms(e.endAt),
+    dueAt: ms(e.dueAt),
+    timed: e.timed,
+    durationMinutes: e.durationMinutes,
+    questionCount: e._count.questions,
+    maxAttempts: e.maxAttempts,
+    attempts: e.attempts,
+    state: e.state,
+    best: e.best,
+    pendingScore: e.pendingScore,
+    passingScore: e.passingScore,
+    mobile: mobileAvailability(e),
+  }
+}

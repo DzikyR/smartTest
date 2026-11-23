@@ -26,9 +26,9 @@ export async function studentClasses(user: CurrentUser) {
   const rows = await db.groupMember.findMany({
     where: { userId: user.id, role: "STUDENT", status: { in: ["ACTIVE", "PENDING"] }, group: { archivedAt: null } },
     orderBy: { joinedAt: "desc" },
-    select: { status: true, group: { select: { id: true, name: true, term: true, owner: { select: { name: true } }, subject: { select: { code: true, name: true } }, _count: { select: { members: { where: ACTIVE_STUDENT } } } } } },
+    select: { status: true, group: { select: { id: true, name: true, description: true, term: true, owner: { select: { name: true } }, subject: { select: { code: true, name: true } }, _count: { select: { members: { where: ACTIVE_STUDENT } } } } } },
   })
-  return rows.map(({ status, group: g }) => ({ id: g.id, name: g.name, term: g.term, owner: g.owner?.name ?? null, subject: g.subject, members: g._count.members, status }))
+  return rows.map(({ status, group: g }) => ({ id: g.id, name: g.name, description: g.description, term: g.term, owner: g.owner?.name ?? null, subject: g.subject, members: g._count.members, status }))
 }
 
 export async function recentPosts(user: CurrentUser, take = 20) {

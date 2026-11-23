@@ -1,33 +1,15 @@
 import { participantExams } from "@/lib/data/participant"
-import { mobileAvailability } from "@/lib/mobile/exam"
-import { authenticate, json, ms } from "@/lib/mobile/http"
+import { examCard } from "@/lib/mobile/exam"
+import { authenticate, json } from "@/lib/mobile/http"
 
-/** GET /api/v1/mobile/exams — ujian & pekerjaan yang ditujukan ke peserta, dengan statusnya. */
+/**
+ * GET /api/v1/mobile/exams[?classId=…] — ujian & pekerjaan yang ditujukan ke peserta, dengan statusnya
+ * (opsional: hanya yang ditujukan ke satu kelas — tab "Ujian & Tugas" di halaman kelas).
+ */
 export async function GET(request: Request) {
   const ctx = await authenticate(request, { roles: ["PESERTA"] })
   if (ctx instanceof Response) return ctx
-  const exams = await participantExams(ctx.user)
-  return json({
-    exams: exams.map((e) => ({
-      id: e.id,
-      title: e.title,
-      kind: e.kind,
-      category: e.category?.name ?? null,
-      workType: e.workType,
-      subject: { code: e.subject.code, name: e.subject.name },
-      startAt: ms(e.startAt),
-      endAt: ms(e.endAt),
-      dueAt: ms(e.dueAt),
-      timed: e.timed,
-      durationMinutes: e.durationMinutes,
-      questionCount: e._count.questions,
-      maxAttempts: e.maxAttempts,
-      attempts: e.attempts,
-      state: e.state,
-      best: e.best,
-      pendingScore: e.pendingScore,
-      mobile: mobileAvailability(e),
-    })),
-    now: Date.now(),
-  })
+  const classId = new URL(request.url).searchParams.get("classId")?.slice(0, 40) || undefined
+  const exams = await participantExams(ctx.user, { groupId: classId })
+  return json({ exams: exams.map(examCard), now: Date.now() })
 }

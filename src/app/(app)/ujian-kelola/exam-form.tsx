@@ -39,6 +39,7 @@ export type ExamDefaults = {
   allowedIps: string | null
   requireSeb: boolean
   sebConfigKeys: string | null
+  allowMobileApp: boolean
   rules: string | null
   groupIds: string[]
 }
@@ -249,6 +250,12 @@ export function ExamForm({
               label="Wajib Safe Exam Browser (tingkat 2)"
               hint="Mengunci laptop/PC/iPad selama ujian. Android tidak didukung."
               defaultChecked={defaults?.requireSeb ?? level === 2}
+            />
+            <Checkbox
+              name="blockMobileApp"
+              label="Larang dikerjakan dari aplikasi mobile"
+              hint="Bila tidak dicentang, peserta boleh memakai aplikasi SmartTest (ujian tingkat 2 di aplikasi tetap wajib lolos verifikasi integritas aplikasi)."
+              defaultChecked={defaults ? !defaults.allowMobileApp : false}
             />
           </div>
           <div className="grid gap-4 md:grid-cols-2">

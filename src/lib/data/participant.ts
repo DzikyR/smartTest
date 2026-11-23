@@ -26,6 +26,7 @@ export async function participantExams(user: CurrentUser, filter: { groupId?: st
       showScore: true,
       passingScore: true,
       requireSeb: true,
+      allowMobileApp: true,
       subject: { select: { code: true, name: true, type: true, isPersonalSpace: true } },
       _count: { select: { questions: true } },
       attempts: { where: { userId: user.id }, select: { status: true, score: true, submittedAt: true } },

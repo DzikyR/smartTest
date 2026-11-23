@@ -72,6 +72,10 @@ Templat Excel & Word tersedia di menu **Bank Soal → Impor**.
 
 SEB tersedia untuk Windows, macOS, dan iOS/iPadOS (tidak untuk Android).
 
+## Aplikasi mobile
+
+API khusus aplikasi Android/iOS ada di `/api/v1/mobile/*` (Bearer token, memakai mesin ujian yang sama dengan web). Kontrak lengkap: [docs/API-MOBILE.md](docs/API-MOBILE.md).
+
 ## Pengujian
 
 | Perintah | Isi |
@@ -79,6 +83,7 @@ SEB tersedia untuk Windows, macOS, dan iOS/iPadOS (tidak untuk Android).
 | `npm run test:unit` | Parser impor (teks/Word), validasi baris Excel, pengacakan, IP/SEB, tata tertib |
 | `npx tsx --conditions=react-server tests/office.test.mts` | Templat Excel/Word dibuat lalu dibaca kembali; berkas rusak ditolak |
 | `node tests/e2e.test.cjs` | Alur lengkap lewat HTTP: RBAC, buat ujian, soal massal, impor Excel, token, kunci perangkat, tambah waktu, koreksi, ekspor, impor pengguna |
+| `node tests/mobile.test.cjs` | API aplikasi mobile: login & rotasi refresh token, paket soal terenkripsi, mulai/simpan delta/kumpul, kunci perangkat, batas waktu & pelanggaran, LMS, ganti password |
 | `node tests/browser/ui.test.cjs` | Uji di Microsoft Edge + tangkapan layar (`tests/shots/`); sekali: `cd tests/browser && npm install` |
 
 Uji HTTP/browser membutuhkan server berjalan: `npm run build && npm start -- -p 3123`, database berisi data seed. Data uji dibuat dan dihapus sendiri.

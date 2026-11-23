@@ -2,6 +2,7 @@
 
 import { createHash, randomBytes } from "node:crypto"
 import { refresh } from "next/cache"
+import { after } from "next/server"
 import { z } from "zod"
 import { Prisma } from "@/generated/prisma/client"
 import { db } from "@/lib/db"
@@ -16,6 +17,7 @@ import { checkFileBatch, parseLinks, POST_KIND_LABEL, POST_KINDS, reusableDueAt,
 import { parseAnswer } from "@/lib/exam/question-input"
 import { invalidateExamQuestions } from "@/lib/exam/question-cache"
 import { rateLimit } from "@/lib/rate-limit"
+import { notifyPublishedPosts } from "@/lib/mobile/push"
 import { safeFileName, sniffSubmission, SUBMISSION_FORMATS_LABEL } from "@/lib/submissions/files"
 import { removeStoredFiles, saveStoredFile } from "@/lib/submissions/storage"
 import { checkbox, optionalLocalDateTime, optionalNumber, optionalText } from "@/lib/validation"
@@ -281,6 +283,7 @@ export async function createPost(groupId: string, kind: PostKindValue, _prev: Ac
     throw e
   }
 
+  const createdIds: string[] = []
   try {
     // Satu transaksi: salinan untuk SEMUA kelas tujuan dibuat, atau tidak sama sekali.
     await db.$transaction(async (tx) => {
@@ -311,7 +314,7 @@ export async function createPost(groupId: string, kind: PostKindValue, _prev: Ac
           await tx.examGroup.upsert({ where: { examId_groupId: { examId: quiz.id, groupId: target.groupId } }, create: { examId: quiz.id, groupId: target.groupId }, update: {} })
           examId = quiz.id
         }
-        await tx.material.create({
+        const created = await tx.material.create({
           data: {
             kind,
             title,
@@ -326,7 +329,9 @@ export async function createPost(groupId: string, kind: PostKindValue, _prev: Ac
             // Semua salinan menunjuk berkas fisik yang SAMA (tanpa unggah ulang)
             attachments: { create: attachmentRows(attachments, 0) },
           },
+          select: { id: true },
         })
+        createdIds.push(created.id)
       }
     })
   } catch (e) {
@@ -341,6 +346,8 @@ export async function createPost(groupId: string, kind: PostKindValue, _prev: Ac
     entityId: groupId,
     metadata: { title, kind, publish: v.publish, files: attachments.files.length, links: attachments.links.length, alsoPostedTo: others.map((t) => t.id) },
   })
+  // Notifikasi aplikasi mobile dikirim setelah respons (tidak memperlambat/menggagalkan posting).
+  if (v.publish) after(() => notifyPublishedPosts(createdIds))
   refresh()
   const label = POST_KIND_LABEL[kind]
   const where = others.length ? ` di ${targets.length} kelas` : ""
@@ -458,6 +465,8 @@ export async function setMaterialPublished(groupId: string, materialId: string, 
     ...(work ? [db.exam.update({ where: { id: work.id }, data: { publishedAt: publish ? (work.publishedAt ?? now) : null } })] : []),
   ])
   await audit(publish ? "MATERIAL_PUBLISHED" : "MATERIAL_UNPUBLISHED", { userId: user.id, entity: "Group", entityId: groupId, metadata: { materialId, examId: work?.id } })
+  // Hanya terbit PERTAMA yang dikabarkan (draf ↔ terbit berulang tidak membanjiri notifikasi).
+  if (publish && !m.publishedAt) after(() => notifyPublishedPosts([materialId]))
   refresh()
   const quiz = m.kind === "TUGAS_KUIS" && m.examId ? await db.exam.findUnique({ where: { id: m.examId }, select: { publishedAt: true } }) : null
   const quizNote = publish && quiz && !quiz.publishedAt ? " Ujian CBT-nya belum terbit, jadi mahasiswa belum melihatnya sampai ujian diterbitkan." : ""

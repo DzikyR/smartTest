@@ -200,5 +200,45 @@ check("orphanKeys: berkas yang masih dipakai salinan kelas lain TIDAK dihapus", 
 check("reusableDueAt: tenggat lampau dibuang, mendatang dipertahankan", posts.reusableDueAt(PAST, NOW) === null && posts.reusableDueAt(FUTURE, NOW) === FUTURE && posts.reusableDueAt(null, NOW) === null)
 check("Jenis postingan ↔ workType ujian", posts.WORK_TYPE_OF.TUGAS === "ASSIGNMENT" && posts.WORK_TYPE_OF.TUGAS_KUIS === "QUIZ" && posts.WORK_TYPE_OF.PERTANYAAN === "QUESTION" && !posts.isWorkPost("MATERI"))
 
+// ---- Aplikasi mobile: token, versi, paket soal ----
+const tok = await import(src("mobile/token.ts"))
+const ver = await import(src("mobile/version.ts"))
+const pkgm = await import(src("mobile/package.ts"))
+const MKEY = tok.deriveKey("rahasia-uji", "access-token/v1")
+const T0 = 1_800_000_000_000
+const msigned = tok.signAccessToken({ sub: "u1", fam: "f1", aat: T0 - 5000 }, MKEY, T0)
+check("Access token: sah & klaim utuh", tok.verifyAccessToken(msigned.token, MKEY, T0 + 1000)?.sub === "u1" && msigned.expiresIn === 900)
+check("Access token: kedaluwarsa setelah 15 menit", tok.verifyAccessToken(msigned.token, MKEY, T0 + 901_000) === null)
+check("Access token: kunci lain / tujuan lain ditolak", tok.verifyAccessToken(msigned.token, tok.deriveKey("rahasia-lain", "access-token/v1"), T0) === null && tok.verifyAccessToken(msigned.token, tok.deriveKey("rahasia-uji", "exam-package/v1"), T0) === null)
+const [jwtHead, jwtBody, jwtSig] = msigned.token.split(".")
+const mforged = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(jwtBody, "base64url").toString()), sub: "admin" })).toString("base64url")
+check("Access token: payload diubah → ditolak", tok.verifyAccessToken(`${jwtHead}.${mforged}.${jwtSig}`, MKEY, T0) === null)
+const noneHead = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url")
+check("Access token: alg 'none' / header lain ditolak", tok.verifyAccessToken(`${noneHead}.${jwtBody}.`, MKEY, T0) === null && tok.verifyAccessToken(`${noneHead}.${jwtBody}.${jwtSig}`, MKEY, T0) === null)
+check("Refresh token: acak & hash stabil", tok.newRefreshToken() !== tok.newRefreshToken() && tok.hashToken("x") === tok.hashToken("x") && tok.hashToken("x").length === 64)
+check("Bearer: format sah / sampah ditolak", tok.bearer(`Bearer ${msigned.token}`) === msigned.token && tok.bearer("Basic abc") === null && tok.bearer("Bearer a b") === null && tok.bearer(null) === null)
+check("Versi: 1.2.10 > 1.2.9, suffix build diabaikan", ver.versionLess("1.2.9", "1.2.10") && !ver.versionLess("1.2.10", "1.2.9") && !ver.versionLess("1.3.0+45", "1.3.0") && ver.versionLess("1.3.0-beta", "1.3.1"))
+check("Versi: tanpa header / tidak sah dianggap paling lama; minimum tidak sah diabaikan", ver.versionLess(null, "1.0.0") && ver.versionLess("abc", "1.0.0") && !ver.versionLess("1.0.0", "bukan-versi"))
+const mcfg = ver.mobileConfig({ MOBILE_MIN_VERSION: "1.2.0", MOBILE_LATEST_VERSION: "x", MOBILE_MAINTENANCE: "1" })
+check("mobileConfig: dari env, versi tidak sah → null", mcfg.minVersion === "1.2.0" && mcfg.latestVersion === null && mcfg.maintenance && mcfg.storeUrl.android === null)
+const PKG_KEY = tok.deriveKey("rahasia-uji", "exam-package/v1")
+const pq = [
+  { id: "q1", type: "MULTIPLE_CHOICE", prompt: "Ibukota?", options: [{ id: "a", text: "Jakarta" }], points: 1 },
+  { id: "q2", type: "ESSAY", prompt: "Jelaskan", options: null, points: 5 },
+]
+const msealed = pkgm.sealPackage("ex1", pq, PKG_KEY)
+const mopened = pkgm.openPackage(msealed.blob, msealed.key)
+check("Paket soal: terenkripsi & dapat dibuka dengan kuncinya", mopened.v === msealed.version && mopened.questions.length === 2 && mopened.questions[0].options[0].text === "Jakarta" && !msealed.blob.includes(Buffer.from("Ibukota")))
+check(
+  "Paket soal: versi & kunci deterministik, berubah bila soal diedit",
+  pkgm.sealPackage("ex1", pq, PKG_KEY).version === msealed.version && pkgm.packageKey(PKG_KEY, "ex1", msealed.version).equals(msealed.key) && pkgm.sealPackage("ex1", [{ ...pq[0], prompt: "Ibukota RI?" }, pq[1]], PKG_KEY).version !== msealed.version
+)
+const mthrows = (fn: () => unknown) => { try { fn(); return false } catch { return true } }
+const tampered = Buffer.from(msealed.blob)
+tampered[20] ^= 1
+check("Paket soal: kunci ujian lain / isi diubah → gagal dibuka (GCM)", mthrows(() => pkgm.openPackage(msealed.blob, pkgm.packageKey(PKG_KEY, "ex2", msealed.version))) && mthrows(() => pkgm.openPackage(tampered, msealed.key)))
+const withKey = pkgm.sealPackage("ex1", [{ ...pq[0], answerKey: { optionId: "a" } }], PKG_KEY)
+check("Paket soal: field di luar daftar (mis. kunci jawaban) tidak ikut", !JSON.stringify(pkgm.openPackage(withKey.blob, withKey.key)).includes("answerKey"))
+
 console.log(`\n${pass} lulus, ${fail} gagal`)
 if (fail) process.exit(1)

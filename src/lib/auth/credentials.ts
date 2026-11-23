@@ -2,7 +2,7 @@ import "server-only"
 import bcrypt from "bcryptjs"
 import { z } from "zod"
 import { db } from "@/lib/db"
-import { isRateLimited, rateLimit } from "@/lib/rate-limit"
+import { ipFailureGate } from "@/lib/network/trusted"
 
 /**
  * Pemeriksaan email/NIM + password — satu-satunya pintu login (NextAuth di web &
@@ -28,8 +28,7 @@ export const credentialsSchema = z.object({
  * ke satu akun tetap dihentikan oleh kunci akun (MAX_FAILED_ATTEMPTS); batas ini menahan password
  * spraying (banyak akun dari satu IP).
  */
-const LOGIN_FAILS_PER_IP = 100
-const LOGIN_WINDOW_MS = 15 * 60 * 1000
+// Batasnya (100 gagal / 15 menit, dikalikan untuk jaringan kampus tepercaya) ada di IP_LIMITS.loginFail.
 
 export type VerifiedUser = { id: string; name: string; email: string; role: "SUPER_ADMIN" | "ADMIN" | "DOSEN" | "PESERTA" }
 
@@ -42,9 +41,9 @@ export async function verifyCredentials(raw: unknown, ctx: { ip: string; userAge
   const { password } = parsed.data
   const { ip, userAgent } = ctx
 
-  const failKey = `login-fail:${ip}`
-  if (isRateLimited(failKey, LOGIN_FAILS_PER_IP)) return { ok: false, reason: "rate_limited" }
-  const countFailure = () => rateLimit(failKey, LOGIN_FAILS_PER_IP, LOGIN_WINDOW_MS)
+  const gate = await ipFailureGate(ip, "loginFail")
+  if (gate.blocked) return { ok: false, reason: "rate_limited" }
+  const countFailure = gate.fail
 
   const user = await db.user.findFirst({
     where: identifier.includes("@") ? { email: identifier } : { username: { equals: identifier, mode: "insensitive" } },

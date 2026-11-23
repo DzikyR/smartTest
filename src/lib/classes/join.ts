@@ -5,6 +5,7 @@ import type { CurrentUser } from "@/lib/auth/dal"
 import { isFeatureEnabled } from "@/lib/features/access"
 import { FEATURE_DISABLED } from "@/lib/features/registry"
 import { rateLimit } from "@/lib/rate-limit"
+import { ipFailureGate } from "@/lib/network/trusted"
 import { normalizeCode } from "./code-format"
 
 export type JoinError = "INVALID" | "DISABLED" | "EXPIRED" | "LOCKED" | "FULL" | "REMOVED" | "ROLE" | "FEATURE" | "RATE_LIMITED" | "PROFILE_INCOMPLETE" | "NOT_ON_ROSTER"
@@ -31,13 +32,19 @@ export async function joinWithCode(user: CurrentUser, rawCode: unknown, ip: stri
   // 1. Hanya peserta yang bergabung lewat kode; pengajar ditambahkan pemilik kelas.
   if (user.role !== "PESERTA") return no("ROLE", "Kode kelas/ujian untuk peserta. Pengajar dikelola dari halaman kelas.")
 
-  // 2. Rate limit per akun DAN per IP — menebak kode secara acak menjadi tidak realistis.
-  if (!rateLimit(`join:u:${user.id}`, 10, 60_000).ok || !rateLimit(`join:ip:${ip}`, 30, 60_000).ok)
-    return no("RATE_LIMITED", "Terlalu banyak percobaan. Coba lagi dalam satu menit.")
+  // 2. Rate limit per akun (semua percobaan) DAN per IP (hanya kode SALAH) — menebak kode secara
+  //    acak menjadi tidak realistis, tetapi satu lab/kampus di balik NAT tetap bisa bergabung serentak.
+  //    Batas per IP dikalikan untuk jaringan kampus tepercaya (Kontrol Fitur).
+  const gate = await ipFailureGate(ip, "joinFail")
+  if (gate.blocked || !rateLimit(`join:u:${user.id}`, 10, 60_000).ok)
+    return no("RATE_LIMITED", "Terlalu banyak percobaan. Coba lagi beberapa menit lagi.")
 
   // 3. Format salah ditolak tanpa menyentuh database.
   const code = normalizeCode(rawCode)
-  if (!code) return no("INVALID", INVALID)
+  if (!code) {
+    gate.fail()
+    return no("INVALID", INVALID)
+  }
 
   // 4. Lookup lewat Prisma (query berparameter — aman dari SQL injection).
   const ac = await db.accessCode.findUnique({
@@ -48,6 +55,7 @@ export async function joinWithCode(user: CurrentUser, rawCode: unknown, ip: stri
     },
   })
   if (!ac || ac.status === "REVOKED" || (ac.type === "CLASS" ? !ac.group : !ac.session)) {
+    gate.fail()
     await audit("JOIN_CODE_INVALID", { userId: user.id, severity: "WARNING", metadata: { code } })
     return no("INVALID", INVALID)
   }

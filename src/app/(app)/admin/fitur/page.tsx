@@ -8,6 +8,10 @@ import { FEATURE_KEYS, FEATURES, featureEligible, TOGGLEABLE_ROLES } from "@/lib
 import { PageHeader } from "@/components/shell/page-parts"
 import { FeatureMatrix, type FeatureRow } from "./matrix"
 import { PublicAccess } from "./public-access"
+import { TrustedNetworks } from "./trusted-networks"
+import { headers } from "next/headers"
+import { clientIp } from "@/lib/rate-limit"
+import { getNetworkSettings, IP_LIMITS, isTrustedIp } from "@/lib/network/trusted"
 
 export const metadata: Metadata = { title: "Kontrol Fitur" }
 
@@ -20,6 +24,9 @@ export default async function FeaturesPage() {
     getAuthSettings(),
     db.siteSetting.findUnique({ where: { key: "auth" }, select: { value: true } }),
   ])
+  const ip = clientIp(await headers())
+  const [network, ipTrusted] = await Promise.all([getNetworkSettings(), isTrustedIp(ip)])
+  const limits = Object.values(IP_LIMITS).map((l) => ({ label: l.label, base: l.base, minutes: l.windowMs / 60_000 }))
   const labels = roleLabels(t)
   // Nilai tersimpan (bukan efektif): saklar Google tetap ingat pilihan walau kredensial belum diisi.
   const savedGoogle = (authRow?.value as { googleLogin?: boolean } | null)?.googleLogin ?? true
@@ -46,6 +53,7 @@ export default async function FeaturesPage() {
         description="Aktifkan atau nonaktifkan fitur per role. Perubahan berlaku seketika pada permintaan berikutnya: menu & tombol disembunyikan, halaman dan aksinya ditolak. Super Admin selalu memiliki akses penuh."
       />
       <PublicAccess settings={{ registrationOpen: auth.registrationOpen, googleLogin: savedGoogle }} googleConfigured={googleConfigured()} />
+      <TrustedNetworks networks={network.networks} multiplier={network.multiplier} currentIp={ip} currentTrusted={ipTrusted} limits={limits} />
       <FeatureMatrix rows={rows} runningAttempts={runningAttempts} />
     </div>
   )

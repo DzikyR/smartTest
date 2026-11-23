@@ -10,6 +10,8 @@ import { getTexts, SITE_TAGS } from "@/lib/site/config"
 import { roleLabels } from "@/content/texts"
 import { FEATURES, featureEligible, isFeatureKey, TOGGLEABLE_ROLES, type FeatureKey } from "@/lib/features/registry"
 import { fail, ok, type ActionResult } from "@/lib/action-result"
+import { parseNetwork, parseNetworkList } from "@/lib/network/cidr"
+import { getNetworkSettings, invalidateNetworkSettings, MULTIPLIER_RANGE, NETWORK_SETTING_KEY } from "@/lib/network/trusted"
 
 const roleSchema = z.enum(TOGGLEABLE_ROLES)
 
@@ -75,4 +77,39 @@ export async function setAuthSetting(key: string, enabled: boolean): Promise<Act
   updateTag(SITE_TAGS.auth)
   refresh()
   return ok(`${key === "registrationOpen" ? "Pendaftaran mandiri" : "Masuk dengan Google"} ${enabled ? "dibuka" : "ditutup"}.`)
+}
+
+// ---------------------------------------------------------------------------
+// Jaringan kampus tepercaya: batas per IP dikalikan untuk IP publik kampus (NAT)
+// ---------------------------------------------------------------------------
+
+const MAX_NETWORKS = 50
+/** Jaringan terlalu luas = praktis mematikan batas per IP untuk siapa saja. */
+const MIN_PREFIX = { 4: 16, 6: 32 } as const
+
+export async function saveTrustedNetworks(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
+  const actor = await requireRole("SUPER_ADMIN")
+  const { networks, invalid } = parseNetworkList(String(formData.get("networks") ?? "").slice(0, 10_000))
+  const multiplier = Number(formData.get("multiplier"))
+  const errors: Record<string, string> = {}
+  if (invalid.length) errors.networks = `Bukan IP/CIDR yang sah: ${invalid.slice(0, 5).join(", ")}${invalid.length > 5 ? ", …" : ""}`
+  else if (networks.length > MAX_NETWORKS) errors.networks = `Maksimal ${MAX_NETWORKS} jaringan`
+  else {
+    const broad = networks.filter((n) => {
+      const p = parseNetwork(n)!
+      return p.prefix < MIN_PREFIX[p.version]
+    })
+    if (broad.length) errors.networks = `Terlalu luas (minimal /${MIN_PREFIX[4]} untuk IPv4, /${MIN_PREFIX[6]} untuk IPv6): ${broad.join(", ")}`
+  }
+  if (!Number.isInteger(multiplier) || multiplier < MULTIPLIER_RANGE.min || multiplier > MULTIPLIER_RANGE.max)
+    errors.multiplier = `Isi bilangan bulat ${MULTIPLIER_RANGE.min}–${MULTIPLIER_RANGE.max}`
+  if (Object.keys(errors).length) return fail("Periksa kembali isian yang ditandai.", errors)
+
+  const before = await getNetworkSettings()
+  const value = { networks, multiplier }
+  await db.siteSetting.upsert({ where: { key: NETWORK_SETTING_KEY }, create: { key: NETWORK_SETTING_KEY, value }, update: { value } })
+  invalidateNetworkSettings()
+  await audit("TRUSTED_NETWORKS_CHANGED", { userId: actor.id, entity: "SiteSetting", entityId: NETWORK_SETTING_KEY, severity: "WARNING", metadata: { before, after: value } })
+  refresh()
+  return ok(networks.length ? `${networks.length} jaringan tepercaya disimpan (batas per IP ×${multiplier}).` : "Daftar jaringan tepercaya dikosongkan; semua IP memakai batas bawaan.")
 }

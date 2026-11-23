@@ -82,3 +82,16 @@ Urutan dampak terbesar:
    ukuran gelombang berikutnya.
 5. Opsional: uji beban kecil (100–300) di luar jam ujian untuk mengetahui batas nyata
    perangkat sekarang, lalu tentukan ukuran gelombang dari angka itu.
+
+## Batas per IP & jaringan kampus tepercaya (23 November 2026)
+
+Satu kampus/lab keluar ke internet lewat satu IP publik (NAT), jadi ratusan peserta
+terhitung sebagai **satu IP**. IP dibaca dari `CF-Connecting-IP` (Cloudflare Tunnel → nginx).
+
+- Login & gabung kelas/sesi hanya menghitung percobaan **gagal** per IP (100 / 15 menit).
+- **Kontrol Fitur → Jaringan kampus tepercaya** (Super Admin): daftar IP/CIDR publik kampus
+  + pengali (bawaan ×20, 2–100). Untuk IP itu semua batas per IP dikalikan; batas per akun
+  (kunci 5× salah password, gabung 10/menit per akun) tetap. Jaringan lebih luas dari /16
+  (IPv4) atau /32 (IPv6) ditolak. Perubahan tercatat di log audit (`TRUSTED_NETWORKS_CHANGED`).
+- IPv6 dihitung per /64. Kode: `src/lib/network/`. Uji: `tests/network.test.cjs`.
+- Cloudflare: pastikan tidak ada Rate Limiting Rule / Bot Fight Mode yang menantang IP kampus.

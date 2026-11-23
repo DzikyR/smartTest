@@ -8,7 +8,7 @@ import { db } from "@/lib/db"
 import { audit } from "@/lib/audit"
 import { requireRole, type CurrentUser } from "@/lib/auth/dal"
 import { STAFF } from "@/lib/auth/roles"
-import { canManageSubject, getManagedExam, managedExams } from "@/lib/data/access"
+import { canManageSubject, getManagedExam, managedExams, personalSpaceId } from "@/lib/data/access"
 import { targetableClasses } from "@/lib/classes/access"
 import { removeStoredFiles } from "@/lib/submissions/storage"
 import { removeUnusedFiles } from "@/lib/classes/materials"
@@ -268,11 +268,17 @@ export async function deleteExam(examId: string): Promise<ActionResult<{ href: s
 // Soal ujian
 // ---------------------------------------------------------------------------
 
-/** Ambil soal dari bank: centang manual (bankId[]) atau acak N soal menurut topik/kesulitan. */
-export async function addFromBank(examId: string, _prev: ActionResult, formData: FormData) {
+/**
+ * Ambil soal dari bank: centang manual (bankId[]) atau acak N soal menurut topik/kesulitan.
+ * `source`: "subject" = bank mata uji ujian ini; "mine" = Bank soal saya (ruang ajar MILIK PENGGUNA).
+ * Pekerjaan ruang ajar hanya boleh memakai "mine": bank ruang ajar pembuatnya tidak dibuka untuk co-teacher.
+ */
+export async function addFromBank(examId: string, source: "subject" | "mine", _prev: ActionResult, formData: FormData) {
   const user = await requireRole(...STAFF)
   const { exam, error } = await editableExam(user, examId)
   if (error) return error
+  const bankId = source === "mine" ? await personalSpaceId(user.id) : exam.subject.isPersonalSpace ? null : exam.subjectId
+  if (!bankId) return fail(source === "mine" ? "Bank soal saya masih kosong." : "Pekerjaan ini mengambil soal dari Bank soal saya.")
   // Soal yang sudah ada di ujian tidak diambil lagi.
   const used = new Set((await db.examQuestion.findMany({ where: { examId, sourceId: { not: null } }, select: { sourceId: true } })).map((q) => q.sourceId!))
 
@@ -286,7 +292,7 @@ export async function addFromBank(examId: string, _prev: ActionResult, formData:
     const pool = (
       await db.question.findMany({
         where: {
-          subjectId: exam.subjectId,
+          subjectId: bankId,
           ...(topic ? { topic } : {}),
           ...([1, 2, 3].includes(difficulty) ? { difficulty } : {}),
           ...(["MULTIPLE_CHOICE", "TRUE_FALSE", "SHORT_ANSWER", "ESSAY"].includes(type) ? { type: type as Prisma.QuestionWhereInput["type"] & string } : {}),
@@ -301,9 +307,12 @@ export async function addFromBank(examId: string, _prev: ActionResult, formData:
       .slice(0, count)
       .map((p) => p.id)
   }
-  const items = await db.question.findMany({ where: { id: { in: ids }, subjectId: exam.subjectId }, orderBy: { createdAt: "asc" } })
+  const items = await db.question.findMany({ where: { id: { in: ids }, subjectId: bankId }, orderBy: { createdAt: "asc" } })
   const fresh = items.filter((q) => !used.has(q.id))
   if (fresh.length === 0) return fail("Soal terpilih sudah ada di ujian ini.")
+  if (exam.workType === "QUESTION" && exam._count.questions + fresh.length > 1) {
+    return fail("Pertanyaan berisi tepat satu soal. Hapus soal yang ada lalu pilih satu soal saja.")
+  }
   const err = await appendExamQuestions(
     examId,
     fresh.map((q) => ({ ...q, sourceId: q.id }))

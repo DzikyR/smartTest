@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { POST_KIND_LABEL, type PostKindValue } from "@/lib/classes/posts"
 import { createPost, reusePost } from "../material-actions"
-import { PostFields, type QuizOption, type Topic } from "./material-fields"
+import { PostFields, type BankQuestion, type QuizOption, type Topic } from "./material-fields"
 import { KIND_ICON, TypeIcon } from "./post-icon"
 
 export type TargetClass = { id: string; name: string; term: string | null }
@@ -35,7 +35,21 @@ const DIALOG_DESC: Record<PostKindValue, string> = {
  * (disimpan di ruang ajar pembuat). `otherClasses` = kelas lain yang dikelola,
  * untuk memposting salinan ke beberapa kelas sekaligus.
  */
-export function PostCreateMenu({ groupId, topics, quizzes, sources, otherClasses }: { groupId: string; topics: Topic[]; quizzes: QuizOption[]; sources: ReuseSource[]; otherClasses: TargetClass[] }) {
+export function PostCreateMenu({
+  groupId,
+  topics,
+  quizzes,
+  sources,
+  otherClasses,
+  bank,
+}: {
+  groupId: string
+  topics: Topic[]
+  quizzes: QuizOption[]
+  sources: ReuseSource[]
+  otherClasses: TargetClass[]
+  bank: BankQuestion[]
+}) {
   const [open, setOpen] = useState<PostKindValue | "REUSE" | null>(null)
   const close = (next: boolean) => !next && setOpen(null)
 
@@ -84,7 +98,7 @@ export function PostCreateMenu({ groupId, topics, quizzes, sources, otherClasses
           submitLabel="Simpan"
           wide
         >
-          <PostFields kind={kind} topics={topics} quizzes={quizzes} />
+          <PostFields kind={kind} topics={topics} quizzes={quizzes} bank={bank} />
           <TargetClassesField classes={otherClasses} />
         </FormDialog>
       ))}

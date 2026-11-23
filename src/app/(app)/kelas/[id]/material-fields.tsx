@@ -11,12 +11,15 @@ import { Textarea } from "@/components/ui/textarea"
 import { formatBytes } from "@/lib/format"
 import { linkAttachment, POST_LIMITS, type PostKindValue } from "@/lib/classes/posts"
 import { MAX_OPTIONS } from "@/lib/exam/question-input"
+import { QUESTION_TYPE_LABEL } from "@/lib/labels"
+import type { QuestionType } from "@/generated/prisma/enums"
 import { SUBMISSION_ACCEPT, SUBMISSION_FORMATS_LABEL } from "@/lib/submissions/files"
 import { ATTACHMENT_ICON } from "./post-icon"
 
 export type Topic = { id: string; name: string }
 export type QuizOption = { id: string; title: string; published: boolean; questions: number }
 export type ExistingAttachment = { id: string; type: "FILE" | "LINK" | "YOUTUBE"; name: string; size: number | null; url: string | null }
+export type BankQuestion = { id: string; type: QuestionType; prompt: string; points: number; topic: string | null }
 export type PostDefaults = { title: string; content: string | null; topicId: string | null; dueAt: string; maxPoints: number | null; attachments: ExistingAttachment[]; examTitle?: string; questionLocked?: boolean }
 
 const NEW_TOPIC = "__new__"
@@ -25,10 +28,27 @@ const NEW_TOPIC = "__new__"
  * Isian postingan (buat & ubah) untuk keempat jenis. Jenis tidak bisa diganti
  * setelah dibuat. Lampiran berkas & tautan bisa dicampur dalam satu form.
  */
-export function PostFields({ kind, topics, quizzes = [], defaults, defaultTopicId }: { kind: PostKindValue; topics: Topic[]; quizzes?: QuizOption[]; defaults?: PostDefaults; defaultTopicId?: string }) {
+export function PostFields({
+  kind,
+  topics,
+  quizzes = [],
+  bank = [],
+  defaults,
+  defaultTopicId,
+}: {
+  kind: PostKindValue
+  topics: Topic[]
+  quizzes?: QuizOption[]
+  bank?: BankQuestion[]
+  defaults?: PostDefaults
+  defaultTopicId?: string
+}) {
   const editing = !!defaults
   const [topic, setTopic] = useState(defaults ? (defaults.topicId ?? "") : (defaultTopicId ?? ""))
   const [qType, setQType] = useState<"ESSAY" | "MULTIPLE_CHOICE">("ESSAY")
+  // Pertanyaan baru: tulis sendiri, atau ambil dari Bank soal saya
+  const [source, setSource] = useState<"new" | "bank">("new")
+  const fromBank = kind === "PERTANYAAN" && !editing && source === "bank"
   const work = kind === "TUGAS" || kind === "PERTANYAAN"
 
   return (
@@ -51,11 +71,17 @@ export function PostFields({ kind, topics, quizzes = [], defaults, defaultTopicI
       )}
       {kind === "TUGAS_KUIS" && editing && defaults.examTitle && <p className="rounded-lg bg-muted px-3 py-2 text-sm">Ujian tertaut: {defaults.examTitle}</p>}
 
-      <FormField name="title" label={kind === "PERTANYAAN" ? "Pertanyaan" : kind === "TUGAS_KUIS" ? "Judul (opsional)" : "Judul"} hint={kind === "TUGAS_KUIS" ? "Kosongkan untuk memakai judul ujian." : undefined}>
-        <Input id="title" name="title" defaultValue={defaults?.title} maxLength={150} required={kind !== "TUGAS_KUIS"} />
+      {kind === "PERTANYAAN" && !editing && <SourceTabs source={source} setSource={setSource} bankCount={bank.length} />}
+
+      <FormField
+        name="title"
+        label={fromBank ? "Judul (opsional)" : kind === "PERTANYAAN" ? "Pertanyaan" : kind === "TUGAS_KUIS" ? "Judul (opsional)" : "Judul"}
+        hint={kind === "TUGAS_KUIS" ? "Kosongkan untuk memakai judul ujian." : fromBank ? "Kosongkan untuk memakai awal teks soal." : undefined}
+      >
+        <Input id="title" name="title" defaultValue={defaults?.title} maxLength={150} required={kind !== "TUGAS_KUIS" && !fromBank} />
       </FormField>
 
-      {kind === "PERTANYAAN" && !editing && <QuestionAnswerFields qType={qType} setQType={setQType} />}
+      {kind === "PERTANYAAN" && !editing && (fromBank ? <BankQuestionPicker bank={bank} /> : <QuestionAnswerFields qType={qType} setQType={setQType} />)}
       {kind === "PERTANYAAN" && editing && (
         <p className="text-xs text-muted-foreground">
           {defaults.questionLocked ? "Sudah ada jawaban terkumpul — teks soal di halaman Pertanyaan tidak lagi diubah dari sini." : "Jenis jawaban & pilihan diubah lewat halaman Pertanyaan (tab Soal)."}
@@ -104,6 +130,65 @@ export function PostFields({ kind, topics, quizzes = [], defaults, defaultTopicI
 }
 
 /** Pertanyaan: jawaban singkat (dinilai manual) atau pilihan ganda (dikoreksi otomatis). */
+function SourceTabs({ source, setSource, bankCount }: { source: "new" | "bank"; setSource: (v: "new" | "bank") => void; bankCount: number }) {
+  return (
+    <div className="flex gap-1 rounded-xl bg-muted p-1 text-sm" role="tablist" aria-label="Sumber soal">
+      {(
+        [
+          ["new", "Tulis baru"],
+          ["bank", `Dari Bank soal saya (${bankCount})`],
+        ] as const
+      ).map(([key, label]) => (
+        <button
+          key={key}
+          type="button"
+          role="tab"
+          aria-selected={source === key}
+          onClick={() => setSource(key)}
+          className={source === key ? "flex-1 rounded-lg bg-background px-3 py-1.5 font-medium shadow-sm" : "flex-1 rounded-lg px-3 py-1.5 text-muted-foreground"}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Pilih satu soal dari Bank soal saya; soal disalin apa adanya (jenis, pilihan, kunci). */
+function BankQuestionPicker({ bank }: { bank: BankQuestion[] }) {
+  const [filter, setFilter] = useState("")
+  if (!bank.length) {
+    return (
+      <p className="rounded-xl border border-dashed p-3 text-sm text-muted-foreground">
+        Bank soal saya masih kosong. Isi lewat menu <strong>Bank Soal → Bank soal saya</strong>, atau centang “Simpan juga ke Bank soal saya” saat menulis Pertanyaan baru.
+      </p>
+    )
+  }
+  const needle = filter.trim().toLowerCase()
+  return (
+    <div className="flex flex-col gap-2">
+      <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Cari teks soal atau topik…" aria-label="Cari soal di Bank soal saya" />
+      <ul className="flex max-h-64 flex-col divide-y overflow-y-auto rounded-xl border">
+        {bank.map((q) => (
+          <li key={q.id} hidden={!!needle && !q.prompt.toLowerCase().includes(needle) && !q.topic?.toLowerCase().includes(needle)}>
+            <label className="flex cursor-pointer items-start gap-2 p-2.5 text-sm hover:bg-muted/50 has-checked:bg-primary/5">
+              <input type="radio" name="bankId" value={q.id} required className="mt-0.5 size-4 shrink-0 accent-primary" />
+              <span className="min-w-0">
+                <span className="line-clamp-2">{q.prompt}</span>
+                <span className="text-xs text-muted-foreground">
+                  {QUESTION_TYPE_LABEL[q.type]} · {q.points} poin{q.topic && ` · ${q.topic}`}
+                </span>
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <FieldError name="bankId" />
+      <p className="text-xs text-muted-foreground">Soal disalin ke Pertanyaan ini; mengubah bank tidak memengaruhi Pertanyaan yang sudah dibuat. Poin di bawah menggantikan poin bank bila diisi.</p>
+    </div>
+  )
+}
+
 function QuestionAnswerFields({ qType, setQType }: { qType: "ESSAY" | "MULTIPLE_CHOICE"; setQType: (v: "ESSAY" | "MULTIPLE_CHOICE") => void }) {
   return (
     <div className="flex flex-col gap-3 rounded-xl border p-3">
@@ -126,6 +211,7 @@ function QuestionAnswerFields({ qType, setQType }: { qType: "ESSAY" | "MULTIPLE_
           <FieldError name="options" />
         </fieldset>
       )}
+      <Checkbox name="saveToBank" label="Simpan juga ke Bank soal saya" hint="Bisa dipakai lagi di kelas lain atau dimasukkan ke ujian." />
     </div>
   )
 }

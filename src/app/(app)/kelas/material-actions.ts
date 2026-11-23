@@ -4,7 +4,7 @@ import { createHash, randomBytes } from "node:crypto"
 import { refresh } from "next/cache"
 import { after } from "next/server"
 import { z } from "zod"
-import { Prisma } from "@/generated/prisma/client"
+import { Prisma, type QuestionType } from "@/generated/prisma/client"
 import { db } from "@/lib/db"
 import { audit } from "@/lib/audit"
 import { requireRole, type CurrentUser } from "@/lib/auth/dal"
@@ -183,13 +183,21 @@ const postSchema = z.object({
     .optional()
     .transform((v) => v || null),
   qType: z.enum(["ESSAY", "MULTIPLE_CHOICE"]).default("ESSAY"),
+  /** Pertanyaan dari Bank soal saya (id soal di ruang ajar pengguna) */
+  bankId: z
+    .string()
+    .max(64)
+    .optional()
+    .transform((v) => v || null),
+  /** Pertanyaan baru: simpan juga ke Bank soal saya */
+  saveToBank: checkbox,
 })
 type PostInput = z.infer<typeof postSchema>
 
 /** Aturan per jenis postingan (pesan per field). */
 function kindErrors(kind: PostKindValue, v: PostInput, editing: boolean) {
   const errors: Record<string, string> = {}
-  if (kind !== "TUGAS_KUIS" && !v.title) errors.title = "Wajib diisi"
+  if (kind !== "TUGAS_KUIS" && !v.title && !(kind === "PERTANYAAN" && v.bankId && !editing)) errors.title = "Wajib diisi"
   if (kind === "TUGAS" && v.title && v.title.length < 3) errors.title = "Minimal 3 karakter"
   if (kind === "TUGAS" && v.maxPoints === null) errors.maxPoints = "Isi poin maksimal"
   if (kind === "PERTANYAAN" && v.title && v.title.length < 5) errors.title = "Minimal 5 karakter"
@@ -198,16 +206,45 @@ function kindErrors(kind: PostKindValue, v: PostInput, editing: boolean) {
   return errors
 }
 
-/** Satu soal Pertanyaan: jawaban singkat (dinilai manual) atau pilihan ganda (dikoreksi otomatis). */
-function questionFromForm(v: PostInput, formData: FormData) {
+type PostQuestion = {
+  type: QuestionType
+  prompt: string
+  options: Prisma.InputJsonValue | typeof Prisma.DbNull
+  answerKey: Prisma.InputJsonValue | typeof Prisma.DbNull
+  points: number
+  order: number
+  sourceId?: string | null
+}
+
+/**
+ * Satu soal Pertanyaan: ditulis langsung (jawaban singkat dinilai manual / pilihan ganda
+ * dikoreksi otomatis), atau diambil dari Bank soal saya (jenis apa pun, disalin apa adanya).
+ */
+async function questionFromForm(user: CurrentUser, v: PostInput, formData: FormData): Promise<{ question: PostQuestion; error?: never } | { error: ActionResult; question?: never }> {
+  if (v.bankId) {
+    // Hanya soal di ruang ajar MILIK pengguna (bukan bank pribadi orang lain).
+    const q = await db.question.findFirst({ where: { id: v.bankId, subject: { isPersonalSpace: true, ownerId: user.id } } })
+    if (!q) return { error: fail("Soal tidak ditemukan di Bank soal saya.", { bankId: "Pilih soal lagi" }) }
+    return {
+      question: {
+        type: q.type,
+        prompt: q.prompt,
+        options: (q.options as Prisma.InputJsonValue | null) ?? Prisma.DbNull,
+        answerKey: (q.answerKey as Prisma.InputJsonValue | null) ?? Prisma.DbNull,
+        points: v.maxPoints ?? q.points,
+        order: 1,
+        sourceId: q.id,
+      },
+    }
+  }
   const answer = parseAnswer(v.qType, formData)
   if (Object.keys(answer.errors).length) return { error: fail("Periksa pilihan jawaban.", answer.errors) }
   return {
     question: {
       type: v.qType,
       prompt: v.title,
-      options: answer.options ?? Prisma.DbNull,
-      answerKey: answer.answerKey ?? Prisma.DbNull,
+      options: (answer.options as Prisma.InputJsonValue | null) ?? Prisma.DbNull,
+      answerKey: (answer.answerKey as Prisma.InputJsonValue | null) ?? Prisma.DbNull,
       points: v.maxPoints ?? 1,
       order: 1,
     },
@@ -240,10 +277,10 @@ export async function createPost(groupId: string, kind: PostKindValue, _prev: Ac
   const targets = await targetClasses(user, groupId, formData)
 
   // Validasi pekerjaan tertaut sebelum menyentuh disk
-  let question: ReturnType<typeof questionFromForm>["question"] | null = null
+  let question: PostQuestion | null = null
   let quiz: Awaited<ReturnType<typeof linkableQuiz>> = null
   if (kind === "PERTANYAAN") {
-    const q = questionFromForm(v, formData)
+    const q = await questionFromForm(user, v, formData)
     if (q.error) return q.error
     question = q.question
   }
@@ -259,7 +296,7 @@ export async function createPost(groupId: string, kind: PostKindValue, _prev: Ac
   const attachments = await collectAttachments(groupId, formData, 0)
   if (isResult(attachments)) return attachments
 
-  const title = v.title || quiz?.title.slice(0, 150) || ""
+  const title = v.title || quiz?.title.slice(0, 150) || question?.prompt.replace(/\s+/g, " ").trim().slice(0, 150) || ""
   const now = new Date()
   // Tugas/Pertanyaan selalu masuk RUANG AJAR pembuatnya (tanpa syarat mata uji kelas);
   // akses pengelolaannya dihitung dari kelas tujuan (lihat managedExams).
@@ -287,6 +324,14 @@ export async function createPost(groupId: string, kind: PostKindValue, _prev: Ac
   try {
     // Satu transaksi: salinan untuk SEMUA kelas tujuan dibuat, atau tidak sama sekali.
     await db.$transaction(async (tx) => {
+      // "Simpan juga ke Bank soal saya": satu soal bank, semua salinan kelas menunjuk ke sana (sourceId).
+      if (question && subjectId && v.saveToBank && !v.bankId) {
+        const saved = await tx.question.create({
+          data: { subjectId, createdById: user.id, type: question.type, prompt: question.prompt, options: question.options, answerKey: question.answerKey, points: question.points },
+          select: { id: true },
+        })
+        question = { ...question, sourceId: saved.id }
+      }
       for (const target of placed) {
         let examId: string | null = null
         if (subjectId) {
@@ -364,7 +409,7 @@ export async function updatePost(groupId: string, materialId: string, _prev: Act
   if (!user) return fail(DENIED)
   const current = await db.material.findFirst({
     where: { id: materialId, groupId },
-    select: { kind: true, topicId: true, examId: true, attachments: { select: { id: true, storageKey: true, sortOrder: true } }, exam: { select: { title: true, startAt: true, endAt: true } } },
+    select: { kind: true, title: true, topicId: true, examId: true, attachments: { select: { id: true, storageKey: true, sortOrder: true } }, exam: { select: { title: true, startAt: true, endAt: true } } },
   })
   if (!current) return fail(NOT_FOUND)
   const parsed = postSchema.safeParse(formObject(formData))
@@ -399,7 +444,8 @@ export async function updatePost(groupId: string, materialId: string, _prev: Act
           where: { id: work.id },
           data: { title, instructions: v.content, dueAt: v.dueAt, ...(work.workType === "ASSIGNMENT" ? { maxPoints: v.maxPoints } : {}) },
         })
-        if (!lockedQuestion) await tx.examQuestion.updateMany({ where: { examId: work.id }, data: { prompt: title, ...(v.maxPoints ? { points: v.maxPoints } : {}) } })
+        // Teks soal hanya ikut diganti bila judulnya diubah: soal dari bank bisa lebih panjang dari judul (maks. 150).
+        if (!lockedQuestion) await tx.examQuestion.updateMany({ where: { examId: work.id }, data: { ...(title !== current.title ? { prompt: title } : {}), ...(v.maxPoints ? { points: v.maxPoints } : {}) } })
       }
       await tx.material.update({
         where: { id: materialId },

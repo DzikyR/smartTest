@@ -22,6 +22,12 @@ export function rateLimit(key: string, limit: number, windowMs: number) {
   return { ok: bucket.count <= limit, remaining: Math.max(0, limit - bucket.count), resetAt: bucket.resetAt }
 }
 
+/** Sudah mencapai batas? Hanya membaca, tidak menambah hitungan (pasangan dari rateLimit untuk "hitung yang gagal saja"). */
+export function isRateLimited(key: string, limit: number) {
+  const bucket = buckets.get(key)
+  return !!bucket && bucket.resetAt > Date.now() && bucket.count >= limit
+}
+
 function sweep(now: number) {
   for (const [key, bucket] of buckets) if (bucket.resetAt <= now) buckets.delete(key)
 }

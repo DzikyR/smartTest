@@ -248,6 +248,22 @@ function openPackage(blob, keyB64) {
     r = await A.call("GET", "/dashboard", undefined, { "if-none-match": etag })
     check("Isi berubah (ujian dikumpulkan / materi baru) → ETag baru, 200", r.status === 200 || r.status === 304)
 
+    // ---------- Tampilan & menu mengikuti pengaturan web ----------
+    r = await fetch(`${API}/site`)
+    const site = await r.json()
+    check("GET /site publik: nama, tema, logo, teks, pendaftaran", r.status === 200 && site.name === "SmartTest" && "light" in site.theme && "light" in site.logo && site.texts["nav.ujian"] === "Ujian Saya" && typeof site.registrationOpen === "boolean", site)
+    r = await fetch(`${API}/site`, { headers: { "if-none-match": r.headers.get("etag") } })
+    check("/site tidak berubah → 304", r.status === 304)
+    await pg.query(`insert into content_texts (key, value, "updatedAt") values ('nav.ujian', 'Ujian Kuliah', (now() at time zone 'utc')) on conflict (key) do update set value = excluded.value`)
+    created.texts = true
+    r = await A.call("GET", "/me")
+    const navItems = r.data.nav?.flatMap((sec) => sec.items) ?? []
+    check("/me: menu seperti sidebar web (label dari Tampilan Situs, hanya menu yang ada di aplikasi)", navItems.some((i) => i.href === "/ujian") && navItems.some((i) => i.href === "/kelas") && !navItems.some((i) => i.href.startsWith("/admin")) && Array.isArray(r.data.features), r.data.nav)
+    r = await A.call("GET", "/dashboard")
+    check("Dashboard: statistik seperti web (bisa dikerjakan / akan datang / rata-rata)", typeof r.data.stats?.available === "number" && "mean" in r.data.stats && r.data.exams.every((e) => "questionCount" in e && "subject" in e), r.data.stats)
+    r = await A.call("GET", `/exams?classId=${ifa.id}`)
+    check("Ujian per kelas (?classId)", r.status === 200 && r.data.exams.length > 0 && (await outsider.call("GET", `/exams?classId=${ifa.id}`)).data.exams.length === 0)
+
     // ---------- Notifikasi (FCM tidak dikonfigurasi di server uji) ----------
     r = await A.call("POST", "/devices", { fcmToken: "fcm-token-uji-" + "x".repeat(30) })
     check("Daftar token FCM: tersimpan; tanpa FCM_CREDENTIALS tidak ada topik", r.status === 200 && r.data.enabled === false && Array.isArray(r.data.topics) && !!(await one(`select 1 from mobile_devices where "deviceId"=$1 and "fcmToken" is not null`, [A.id])), r.data)
@@ -282,6 +298,7 @@ function openPackage(blob, keyB64) {
     }
     if (created.materials.length) await pg.query(`delete from materials where id = any($1)`, [created.materials])
     if (created.users.length) await pg.query(`delete from users where id = any($1)`, [created.users])
+    if (created.texts) await pg.query(`delete from content_texts where key = 'nav.ujian'`)
     await pg.query(`delete from mobile_refresh_tokens where "deviceId" like 'dev-%'`)
     await pg.query(`delete from mobile_devices where "deviceId" like 'dev-%'`)
     await pg.end()

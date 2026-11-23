@@ -157,6 +157,8 @@ model User {
   materials       Material[]
   materialDone    MaterialProgress[]
   materialNotes   MaterialComment[]
+  mobileTokens    MobileRefreshToken[]
+  mobileDevices   MobileDevice[]
 
   @@index([role])
   @@map("users")
@@ -346,6 +348,8 @@ model Exam {
   // --- Pengamanan tingkat 2 ---
   requireSeb        Boolean   @default(false)
   sebConfigKeys     String?
+  /// Boleh dikerjakan dari aplikasi mobile. Ujian tingkat 2 (SEB) di aplikasi juga wajib lolos verifikasi integritas aplikasi.
+  allowMobileApp    Boolean   @default(true)
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -449,6 +453,10 @@ model Attempt {
   autoSubmitReason String?
   /// Dikumpulkan setelah tenggat (Exam.dueAt)
   isLate           Boolean          @default(false)
+  /// Asal percobaan dimulai: "web" | "android" | "ios" (null = data lama, dianggap web)
+  client           String?
+  /// Nomor urut simpan otomatis aplikasi mobile — idempotensi (permintaan ulang tidak menimpa yang lebih baru)
+  clientSeq        Int              @default(0)
   /// Jawaban teks untuk jenis Tugas (ASSIGNMENT)
   submissionText   String?
   /// Jawaban berupa tautan luar (mis. Google Drive/GitHub) untuk jenis Tugas
@@ -467,6 +475,7 @@ model Attempt {
 
   @@unique([examId, userId, attemptNo])
   @@index([userId, status])
+  @@index([examId, status])
   @@map("attempts")
 }
 
@@ -810,4 +819,53 @@ model PasswordResetToken {
 
   @@index([userId])
   @@map("password_reset_tokens")
+}
+
+// -----------------------------------------------------------------------------
+//  APLIKASI MOBILE — refresh token (rotasi + deteksi pemakaian ulang) & perangkat (FCM)
+//
+//  Access token (15 menit) tidak disimpan: ditandatangani HMAC (src/lib/mobile/token.ts).
+//  Refresh token hanya disimpan hash SHA-256-nya. Satu `familyId` = satu login di satu
+//  perangkat; token lama yang dipakai ulang (di luar jeda toleransi) mencabut seluruh family.
+// -----------------------------------------------------------------------------
+
+model MobileRefreshToken {
+  id         String    @id @default(cuid())
+  tokenHash  String    @unique
+  familyId   String
+  deviceId   String
+  /// Waktu login family ini — sesi sebelum User.passwordChangedAt tidak berlaku
+  authAt     DateTime
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  /// Diisi saat dirotasi (diganti token baru) atau dicabut (logout / pemakaian ulang)
+  revokedAt  DateTime?
+  replacedBy String?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([familyId])
+  @@index([userId])
+  @@map("mobile_refresh_tokens")
+}
+
+/// Perangkat aplikasi mobile yang terdaftar untuk notifikasi (FCM). Satu baris per (pengguna, perangkat).
+model MobileDevice {
+  id         String   @id @default(cuid())
+  deviceId   String
+  platform   String
+  appVersion String?
+  /// Token FCM terbaru perangkat ini
+  fcmToken   String?  @unique
+  /// Topik FCM yang sudah didaftarkan server untuk token ini (untuk menghitung selisih saat sinkron)
+  topics     String[] @default([])
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@map("mobile_devices")
 }

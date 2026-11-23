@@ -5,16 +5,14 @@ import { z } from "zod"
 import { db } from "@/lib/db"
 import { audit } from "@/lib/audit"
 import { requireRole, type CurrentUser } from "@/lib/auth/dal"
-import { isFeatureEnabled } from "@/lib/features/access"
-import { participantSession, sessionWindow } from "@/lib/sessions/access"
 import { rateLimit } from "@/lib/rate-limit"
-import { examWindow, getParticipantExam } from "@/lib/data/access"
-import { fail, ok, prismaCode, type ActionResult } from "@/lib/action-result"
-import { buildLayout } from "@/lib/exam/layout"
+import { getParticipantExam } from "@/lib/data/access"
+import { fail, ok, type ActionResult } from "@/lib/action-result"
 import { attemptDeadline, finalizeAttempt, isPastDeadline, sanitizeAnswers } from "@/lib/exam/attempt"
 import { bindDevice, checkExamEnvironment, deviceState, OTHER_DEVICE } from "@/lib/exam/guard"
 import type { QuizAnswers } from "@/lib/exam/grading"
-import { examQuestionIds, examQuestions } from "@/lib/exam/question-cache"
+import { examQuestionIds } from "@/lib/exam/question-cache"
+import { beginAttempt } from "@/lib/exam/start"
 
 const NOT_FOUND = "Ujian tidak ditemukan atau tidak ditujukan untuk Anda."
 
@@ -38,56 +36,8 @@ export async function startExam(examId: string, _prev: ActionResult, formData: F
     return fail(env.message)
   }
 
-  // Lanjutkan percobaan yang sedang berjalan.
-  const running = await db.attempt.findFirst({ where: { examId, userId: user.id, status: "IN_PROGRESS" }, select: { id: true, deviceTokenHash: true } })
-  if (running) {
-    if (exam.lockDevice) {
-      const state = await deviceState(running)
-      if (state === "mismatch") return fail(OTHER_DEVICE)
-      if (state === "unbound") await db.attempt.updateMany({ where: { id: running.id, deviceTokenHash: null }, data: { deviceTokenHash: await bindDevice(running.id) } })
-    }
-    refresh()
-    return ok()
-  }
-
-  // Hanya percobaan BARU yang diblokir; yang sedang berjalan sudah dilanjutkan di atas.
-  if (!(await isFeatureEnabled("ujian.mulai", user.role))) return fail("Memulai ujian baru sedang dinonaktifkan oleh administrator.")
-  if (!exam.sessionActive) return fail("Sesi ujian sedang ditutup oleh pengawas.")
-  const window = examWindow(exam)
-  if (window === "upcoming") return fail("Ujian belum dibuka.")
-  if (window === "closed") return fail("Ujian sudah ditutup.")
-  // Jalur umum: jendela sesi mengatur kapan boleh MULAI (setelah mulai, durasi ujian yang berlaku).
-  const session = await participantSession(user, examId)
-  if (session) {
-    const sw = sessionWindow(session)
-    if (sw === "stopped") return fail("Sesi ujian sedang dihentikan pengawas.")
-    if (sw === "upcoming") return fail("Sesi belum dibuka. Tunggu di ruang tunggu sampai waktu mulai.")
-    if (sw === "closed") return fail("Batas masuk sesi sudah lewat.")
-  }
-  const done = await db.attempt.count({ where: { examId, userId: user.id } })
-  if (done >= exam.maxAttempts) return fail(`Batas ${exam.maxAttempts}× kesempatan sudah tercapai.`)
-  if (exam._count.questions === 0) return fail("Ujian belum memiliki soal.")
-
-  if (exam.token) {
-    const given = String(formData.get("token") ?? "").trim().toUpperCase()
-    if (given !== exam.token.toUpperCase()) {
-      await audit("EXAM_TOKEN_INVALID", { userId: user.id, entity: "Exam", entityId: examId, severity: "WARNING" })
-      return fail("Token ujian salah. Minta token kepada pengawas.", { token: "Token tidak sesuai" })
-    }
-  }
-
-  const questions = await examQuestions(examId) // cache bersama: mulai serentak = satu query per ujian
-  const layout = buildLayout(questions, exam)
-  // Nomor dari percobaan tertinggi, bukan jumlah: percobaan yang direset pengawas sudah dihapus.
-  const last = await db.attempt.aggregate({ where: { examId, userId: user.id }, _max: { attemptNo: true } })
-  const attemptNo = (last._max.attemptNo ?? 0) + 1
-  try {
-    const attempt = await db.attempt.create({ data: { examId, userId: user.id, attemptNo, layout, sessionId: session?.id ?? null }, select: { id: true } })
-    if (exam.lockDevice) await db.attempt.update({ where: { id: attempt.id }, data: { deviceTokenHash: await bindDevice(attempt.id) } })
-  } catch (e) {
-    if (prismaCode(e) !== "P2002") throw e // klik ganda
-  }
-  await audit("EXAM_STARTED", { userId: user.id, entity: "Exam", entityId: examId, metadata: { attempt: attemptNo } })
+  const result = await beginAttempt(user, exam, { token: String(formData.get("token") ?? ""), device: { state: deviceState, bind: bindDevice }, client: "web" })
+  if (!result.ok) return fail(result.error, result.fieldErrors)
   refresh()
   return ok()
 }

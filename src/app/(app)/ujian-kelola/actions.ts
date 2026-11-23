@@ -69,6 +69,8 @@ const examSchema = z
     allowedIps: optionalText(2000),
     requireSeb: checkbox,
     sebConfigKeys: optionalText(2000),
+    /** Dikirim terbalik ("larang") agar form/klien lama yang tidak mengirim field ini tetap mengizinkan aplikasi. */
+    blockMobileApp: checkbox,
     rules: optionalText(5000),
   })
   .superRefine((v, ctx) => {
@@ -90,7 +92,7 @@ type PersonalLock = { subjectId: string; workType: "QUIZ" | "ASSIGNMENT" | "QUES
 async function parseExam(user: CurrentUser, formData: FormData, examId?: string, lock?: PersonalLock) {
   const parsed = examSchema.safeParse(formObject(formData))
   if (!parsed.success) return { error: zodFail(parsed.error) }
-  const { hideScore, untimed, ...v } = parsed.data
+  const { hideScore, untimed, blockMobileApp, ...v } = parsed.data
   if (lock) {
     // Nilai form diabaikan: ruang ajar tidak pernah dipilih/ditinggalkan lewat form ujian.
     v.subjectId = lock.subjectId
@@ -110,7 +112,7 @@ async function parseExam(user: CurrentUser, formData: FormData, examId?: string,
   // Tugas: tanpa durasi & satu kali pengiriman (bisa dibatalkan/diperbaiki sebelum dinilai).
   const assignment = v.workType === "ASSIGNMENT"
   return {
-    data: { ...v, timed: assignment ? false : !untimed, maxAttempts: assignment ? 1 : v.maxAttempts, maxPoints: assignment ? v.maxPoints : null, showScore: !hideScore },
+    data: { ...v, timed: assignment ? false : !untimed, maxAttempts: assignment ? 1 : v.maxAttempts, maxPoints: assignment ? v.maxPoints : null, showScore: !hideScore, allowMobileApp: !blockMobileApp },
     groups,
   }
 }
@@ -220,6 +222,7 @@ export async function duplicateExam(examId: string): Promise<ActionResult<{ href
     allowedIps: exam.allowedIps,
     requireSeb: exam.requireSeb,
     sebConfigKeys: exam.sebConfigKeys,
+    allowMobileApp: exam.allowMobileApp,
   }
   const questions = await db.examQuestion.findMany({ where: { examId }, orderBy: { order: "asc" } })
   const copy = await db.exam.create({

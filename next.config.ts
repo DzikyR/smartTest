@@ -37,8 +37,8 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,
-  // Pustaka Office (Excel/Word) berjalan di Node.js, tidak perlu dibundel.
-  serverExternalPackages: ["exceljs", "mammoth", "docx"],
+  // Pustaka Office (Excel/Word) & firebase-admin (notifikasi mobile) berjalan di Node.js, tidak perlu dibundel.
+  serverExternalPackages: ["exceljs", "mammoth", "docx", "firebase-admin"],
   experimental: {
     // Unggah berkas soal (≤ 5 MB), jawaban Tugas (≤ 8 MB) & lampiran postingan kelas
     // (≤ 50 MB sekali simpan, lihat POST_LIMITS di src/lib/classes/posts.ts) lewat Server Action.

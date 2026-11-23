@@ -819,6 +819,84 @@ const K = "ujian-kelola/actions", B = "bank-soal/actions", P = "(app)/ujian/acti
     await act(rina, `/kelas/${raB.id}`, KL, "removeCoTeacher", [raB.id, budiUid2])
     check("Co-teacher dicabut → Tugas Kelas B langsung tidak bisa dibuka/dinilai", !(await html(budi, `/ujian-kelola/${cB.examId}`)).includes(RT) && (await act(budi, `/ujian-kelola/${cB.examId}/koreksi/${attB.id}`, K, "gradeAssignment", [attB.id, PREV, form({ points: "2" })]))?.ok !== true)
 
+    // ---------- Tahap 2: Bank soal saya (bank pribadi di ruang ajar) ----------
+    let rb
+    const bssOf = async (prompt) => one(`select id, "subjectId", type, options, "answerKey" from questions where prompt=$1`, [prompt])
+    r = await act(rina, "/bank-soal?subject=saya", B, "createQuestion", ["saya", PREV, form({ type: "MULTIPLE_CHOICE", prompt: "E2E BSS Hasil 3 x 3 adalah ...", points: "2", option_0: "6", option_1: "9", correct: "1", difficulty: "1" })])
+    const bMC = await bssOf("E2E BSS Hasil 3 x 3 adalah ...")
+    await act(rina, "/bank-soal?subject=saya", B, "createQuestion", ["saya", PREV, form({ type: "SHORT_ANSWER", prompt: "E2E BSS Ibukota Jawa Barat?", points: "1", accepted: "Bandung\nbdg" })])
+    const bSA = await bssOf("E2E BSS Ibukota Jawa Barat?")
+    const longPrompt = "E2E BSS Esai panjang: " + "jelaskan konsep rekursi beserta contoh kasus dasar dan langkah rekursifnya. ".repeat(5).trim()
+    await act(rina, "/bank-soal?subject=saya", B, "createQuestion", ["saya", PREV, form({ type: "ESSAY", prompt: longPrompt, points: "10" })])
+    const bLong = await bssOf(longPrompt)
+    check("Bank soal saya: tambah soal (PG/isian/esai) → masuk ruang ajar pemilik", r?.ok && [bMC, bSA, bLong].every((q) => q?.subjectId === space.id), JSON.stringify([r, bMC?.subjectId, space.id]))
+    r = await act(rina, "/bank-soal/massal?subject=saya", B, "saveBulk", ["saya", [{ type: "BS", prompt: "E2E BSS Massal: bumi bulat.", options: [], key: "Benar", points: "1" }], null])
+    const bBulk = await bssOf("E2E BSS Massal: bumi bulat.")
+    rb = await act(rina, "/bank-soal/impor?subject=saya", B, "saveImported", ["saya", null, [{ ...previewed[0], prompt: "E2E BSS Impor: 2 + 2 = ..." }]])
+    const bImp = await bssOf("E2E BSS Impor: 2 + 2 = ...")
+    check("Bank soal saya: buat massal & impor ke \"saya\"", r?.ok && rb?.ok && bBulk?.subjectId === space.id && bImp?.subjectId === space.id, JSON.stringify([r, rb]))
+    const [hRina, hBudi, hAdmin] = [await html(rina, "/bank-soal?subject=saya"), await html(budi, "/bank-soal?subject=saya"), await html(admin, `/bank-soal?subject=${space.id}`)]
+    check("Bank soal saya tampil untuk pemilik; tidak terlihat dosen lain maupun Admin", hRina.includes("E2E BSS Ibukota") && !hBudi.includes("E2E BSS") && !hAdmin.includes("E2E BSS"))
+    const denied = [
+      await act(budi, "/bank-soal", B, "updateQuestion", [bMC.id, PREV, form({ type: "ESSAY", prompt: "E2E BSS dibajak", points: "1" })]),
+      await act(admin, "/bank-soal", B, "updateQuestion", [bMC.id, PREV, form({ type: "ESSAY", prompt: "E2E BSS dibajak", points: "1" })]),
+      await act(budi, "/bank-soal", B, "deleteQuestions", [[bMC.id]]),
+      await act(admin, "/bank-soal", B, "deleteQuestions", [[bSA.id]]),
+      await act(budi, "/bank-soal", B, "createQuestion", [space.id, PREV, form({ type: "ESSAY", prompt: "E2E BSS sisipan", points: "1" })]),
+      await act(admin, "/bank-soal/massal", B, "saveBulk", [space.id, [{ type: "Esai", prompt: "E2E BSS sisipan admin", options: [], key: "", points: "1" }], null]),
+    ]
+    check("Bank pribadi: dosen lain & Admin tidak bisa mengubah/menghapus/menambah", denied.every((x) => x?.ok === false) && (await one(`select count(*)::int n from questions where "subjectId"=$1 and prompt like 'E2E BSS%'`, [space.id])).n === 5 && !(await one(`select 1 from questions where prompt like 'E2E BSS sisipan%' or prompt='E2E BSS dibajak'`)), JSON.stringify(denied))
+
+    // + Buat → Pertanyaan dari Bank soal saya
+    r = await post(rina, "PERTANYAAN", { bankId: bMC.id, publish: "on" }, raA.id)
+    const pMC = await one(`select m.title, eq.type, eq.prompt, eq.options, eq."answerKey", eq.points, eq."sourceId" from materials m join exam_questions eq on eq."examId"=m."examId" where m."groupId"=$1 and m.title like 'E2E BSS Hasil 3%'`, [raA.id])
+    check("Pertanyaan dari bank (PG): judul kosong → judul dari soal; soal disalin utuh dengan sourceId", r?.ok && pMC?.type === "MULTIPLE_CHOICE" && pMC.sourceId === bMC.id && JSON.stringify(pMC.answerKey) === JSON.stringify(bMC.answerKey) && JSON.stringify(pMC.options) === JSON.stringify(bMC.options) && pMC.points === 2, JSON.stringify([r, pMC]))
+    r = await post(rina, "PERTANYAAN", { bankId: bSA.id, title: "E2E BSS Pertanyaan isian", maxPoints: "4" }, raA.id)
+    const pSA = await one(`select eq.type, eq."answerKey", eq.points from materials m join exam_questions eq on eq."examId"=m."examId" where m.title='E2E BSS Pertanyaan isian'`)
+    check("Pertanyaan dari bank (isian): kunci ikut, poin mengikuti form", r?.ok && pSA?.type === "SHORT_ANSWER" && pSA.answerKey?.accepted?.includes("Bandung") && pSA.points === 4, JSON.stringify([r, pSA]))
+    const budiQ = await act(budi, "/bank-soal?subject=saya", B, "createQuestion", ["saya", PREV, form({ type: "ESSAY", prompt: "E2E BSS soal pribadi Budi", points: "1" })])
+    const bBudi = await bssOf("E2E BSS soal pribadi Budi")
+    r = await post(rina, "PERTANYAAN", { bankId: bBudi?.id ?? "x", title: "E2E BSS curi soal Budi" }, raA.id)
+    check("Pertanyaan dari bank pribadi orang lain → ditolak", budiQ?.ok && bBudi?.subjectId === budiSpace.id && r?.ok === false && !!r.fieldErrors?.bankId && !(await one(`select 1 from materials where title='E2E BSS curi soal Budi'`)), JSON.stringify([budiQ, r]))
+
+    // Soal bank > 150 karakter: judul dipotong, teks soal utuh; ubah tanpa ganti judul tidak memotong
+    r = await post(rina, "PERTANYAAN", { bankId: bLong.id }, raA.id)
+    const pLong = await one(`select m.id mid, m.title, m."topicId", m."examId", eq.prompt from materials m join exam_questions eq on eq."examId"=m."examId" where m."groupId"=$1 and eq."sourceId"=$2`, [raA.id, bLong.id])
+    check("Pertanyaan dari soal panjang: judul ≤150, teks soal utuh", r?.ok && pLong?.title.length <= 150 && pLong.prompt === longPrompt, JSON.stringify([r, pLong?.title.length, pLong?.prompt?.length]))
+    r = await act(rina, `/kelas/${raA.id}?tab=materi`, MT, "updatePost", [raA.id, pLong.mid, PREV, form({ title: pLong.title, content: "E2E BSS petunjuk baru", maxPoints: "10" })])
+    const afterKeep = (await one(`select prompt from exam_questions where "examId"=$1`, [pLong.examId])).prompt
+    rb = await act(rina, `/kelas/${raA.id}?tab=materi`, MT, "updatePost", [raA.id, pLong.mid, PREV, form({ title: "E2E BSS Judul esai diganti", content: "E2E BSS petunjuk baru", maxPoints: "10" })])
+    const afterChange = (await one(`select prompt from exam_questions where "examId"=$1`, [pLong.examId])).prompt
+    check("Ubah Pertanyaan: judul tetap → soal panjang utuh; judul diganti → soal ikut judul", r?.ok && afterKeep === longPrompt && rb?.ok && afterChange === "E2E BSS Judul esai diganti", JSON.stringify([r, rb, afterKeep?.length, afterChange]))
+
+    // "Simpan juga ke Bank soal saya": satu soal bank, semua salinan kelas menunjuk ke sana
+    r = await post(rina, "PERTANYAAN", { title: "E2E BSS Apa itu basis data?", qType: "ESSAY", maxPoints: "3", saveToBank: "on", targetGroupId: [raB.id] }, raA.id)
+    const bankSaved = await all(`select id, "subjectId" from questions where prompt='E2E BSS Apa itu basis data?'`)
+    const bankCopies = await all(`select m."groupId", m."examId", eq."sourceId" from materials m join exam_questions eq on eq."examId"=m."examId" where m.title='E2E BSS Apa itu basis data?'`)
+    check("Simpan juga ke Bank soal saya: 1 soal bank, 2 salinan kelas ber-sourceId soal itu", r?.ok && bankSaved.length === 1 && bankSaved[0].subjectId === space.id && bankCopies.length === 2 && bankCopies.every((c) => c.sourceId === bankSaved[0].id), JSON.stringify([r, bankSaved, bankCopies]))
+
+    // Tab Soal: batas 1 soal Pertanyaan, sumber "subject" ditolak untuk ruang ajar, "mine" untuk ujian biasa
+    const qExam = bankCopies.find((c) => c.groupId === raA.id).examId
+    r = await act(rina, `/ujian-kelola/${qExam}`, K, "addFromBank", [qExam, "mine", PREV, form({ bankId: [bSA.id] })])
+    rb = await act(rina, `/ujian-kelola/${qExam}`, K, "addFromBank", [qExam, "subject", PREV, form({ count: "1" })])
+    check("Pertanyaan tetap tepat 1 soal; ruang ajar tidak mengambil dari bank mata uji", r?.ok === false && /satu soal/.test(r.error) && rb?.ok === false && (await one(`select count(*)::int n from exam_questions where "examId"=$1`, [qExam])).n === 1, JSON.stringify([r, rb]))
+    await act(rina, "/ujian-kelola/baru", K, "createExam", [PREV, form({ ...examForm, title: "E2E BSS Kuis campuran", token: "" })])
+    const mixExam = await one(`select id from exams where title='E2E BSS Kuis campuran'`)
+    r = await act(rina, `/ujian-kelola/${mixExam.id}`, K, "addFromBank", [mixExam.id, "mine", PREV, form({ bankId: [bMC.id, bSA.id, bBudi.id] })])
+    const mixQ = await all(`select "sourceId" from exam_questions where "examId"=$1`, [mixExam.id])
+    check("Ujian mata uji: \"Dari Bank soal saya\" hanya mengambil soal milik sendiri", r?.ok && mixQ.length === 2 && mixQ.every((q) => [bMC.id, bSA.id].includes(q.sourceId)), JSON.stringify([r, mixQ]))
+    // Celah lama: co-teacher tidak bisa mengambil dari bank ruang ajar pembuat pekerjaan
+    r = await post(rina, "PERTANYAAN", { title: "E2E BSS Pertanyaan kelas B", qType: "ESSAY", targetGroupId: [raB.id] }, raA.id)
+    const qB = (await all(`select m."examId" from materials m where m.title='E2E BSS Pertanyaan kelas B' and m."groupId"=$1`, [raB.id]))[0]
+    await pg.query(`delete from exam_questions where "examId"=$1`, [qB.examId])
+    await act(rina, `/kelas/${raB.id}`, KL, "addCoTeacher", [raB.id, PREV, form({ identifier: "dosen.budi" })])
+    const coSubj = await act(budi, `/ujian-kelola/${qB.examId}`, K, "addFromBank", [qB.examId, "subject", PREV, form({ count: "1" })])
+    const coMine = await act(budi, `/ujian-kelola/${qB.examId}`, K, "addFromBank", [qB.examId, "mine", PREV, form({ bankId: [bMC.id] })])
+    const coOwn = await act(budi, `/ujian-kelola/${qB.examId}`, K, "addFromBank", [qB.examId, "mine", PREV, form({ bankId: [bBudi.id] })])
+    const coQ = await all(`select "sourceId" from exam_questions where "examId"=$1`, [qB.examId])
+    await act(rina, `/kelas/${raB.id}`, KL, "removeCoTeacher", [raB.id, budiUid2])
+    check("Co-teacher: tidak bisa mengambil bank ruang ajar pembuat; hanya Bank soal saya miliknya sendiri", coSubj?.ok === false && coMine?.ok === false && coOwn?.ok && coQ.length === 1 && coQ[0].sourceId === bBudi.id, JSON.stringify([coSubj, coMine, coOwn, coQ]))
+
     // Ruang ajar tersembunyi dari daftar mata uji & form resmi
     const hidden = [await html(rina, "/mata-uji"), await html(admin, "/mata-uji"), await html(rina, "/ujian-kelola/baru"), await html(rina, "/kelas"), await html(rina, `/kelas/${raA.id}?tab=pengaturan`), await html(rina, "/bank-soal")]
     check("Ruang ajar tidak muncul di Mata Uji (dosen & admin), form ujian baru, form kelas, pengaturan kelas, Bank Soal", hidden.every((h) => !h.includes(space.code) && !h.includes("Ruang ajar — ")))
